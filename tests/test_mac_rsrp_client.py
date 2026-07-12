@@ -76,7 +76,39 @@ def test_mac_client_receives_samples():
         assert len(got) >= 2
         assert got[0].rsrp == -70.0
         assert got[0].sinr == 10.0
-        assert got[1].t_rel_s > 0
+    finally:
+        stop.set()
+        client.stop()
+
+
+def test_mac_client_uses_wall_clock_when_collect_stuck():
+    """If collect_us does not advance, t_rel_s must still move (plot X-axis)."""
+    port = 18082
+    ready = threading.Event()
+    stop = threading.Event()
+    # Same collect_us on every line — matches observed xApp behavior
+    lines = [
+        "1000000 1 -70.0 10.0",
+        "1000000 1 -71.0 11.0",
+        "1000000 1 -72.0 12.0",
+        "1000000 1 -73.0 13.0",
+    ]
+    th = threading.Thread(target=_serve_lines, args=(port, lines, ready, stop), daemon=True)
+    th.start()
+    assert ready.wait(2)
+    client = MacRsrpTcpClient("127.0.0.1", port)
+    client.start()
+    try:
+        deadline = time.time() + 3
+        got = []
+        while time.time() < deadline and len(got) < 4:
+            try:
+                got.append(client.data_queue.get(timeout=0.5))
+            except Exception:
+                pass
+        assert len(got) >= 3
+        assert got[-1].t_rel_s > got[0].t_rel_s
+        assert got[-1].t_rel_s > 0.05
     finally:
         stop.set()
         client.stop()

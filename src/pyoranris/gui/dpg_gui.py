@@ -113,16 +113,26 @@ class DearPyGuiApp:
 
             with dpg.plot(label="##kpm_plot", height=520, width=1240, tag="main_kpi_plot"):
                 dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthWest)
-                dpg.add_plot_axis(dpg.mvXAxis, label="Time from first sample (s)", tag="x_axis_rsrp")
-                # Left = RSRP (blue), Right = SINR (red) — match matplotlib
-                y_rsrp = dpg.add_plot_axis(dpg.mvYAxis, label="RSRP (dBm)", tag="y_axis_rsrp")
-                dpg.set_axis_limits(y_rsrp, float(rsrp_lo), float(rsrp_hi))
-                dpg.add_line_series([], [], label="MacAvgRSRP", parent=y_rsrp, tag="rsrp_series")
+                self._x_axis = dpg.add_plot_axis(
+                    dpg.mvXAxis, label="Time from first sample (s)", tag="x_axis_rsrp"
+                )
+                # Left = RSRP (blue), Right = SINR (red)
+                self._y_rsrp = dpg.add_plot_axis(
+                    dpg.mvYAxis, label="RSRP (dBm)", tag="y_axis_rsrp"
+                )
+                dpg.set_axis_limits(self._y_rsrp, float(rsrp_lo), float(rsrp_hi))
+                dpg.add_line_series(
+                    [], [], label="MacAvgRSRP", parent=self._y_rsrp, tag="rsrp_series"
+                )
                 dpg.bind_item_theme("rsrp_series", blue_theme)
 
-                y_sinr = dpg.add_plot_axis(dpg.mvYAxis2, label="SINR (dB)", tag="y_axis_sinr")
-                dpg.set_axis_limits(y_sinr, float(sinr_lo), float(sinr_hi))
-                dpg.add_line_series([], [], label="MacAvgSINRdB", parent=y_sinr, tag="sinr_series")
+                self._y_sinr = dpg.add_plot_axis(
+                    dpg.mvYAxis2, label="SINR (dB)", tag="y_axis_sinr"
+                )
+                dpg.set_axis_limits(self._y_sinr, float(sinr_lo), float(sinr_hi))
+                dpg.add_line_series(
+                    [], [], label="MacAvgSINRdB", parent=self._y_sinr, tag="sinr_series"
+                )
                 dpg.bind_item_theme("sinr_series", red_theme)
 
         # Compact control bar
@@ -356,28 +366,40 @@ class DearPyGuiApp:
             n = len(snap.rsrp_series)
             if n and dpg.does_item_exist("rsrp_series"):
                 if kpm and snap.t_rel_series:
-                    xs = list(snap.t_rel_series)
-                    dpg.set_value("rsrp_series", [xs, snap.rsrp_series])
+                    xs = [float(v) for v in snap.t_rel_series]
+                    ys_r = [float(v) if v == v else 0.0 for v in snap.rsrp_series]
+                    ys_s = [float(v) if v == v else 0.0 for v in snap.sinr_series]
+                    # DearPyGui expects two sequences; keep lengths matched
+                    m = min(len(xs), len(ys_r), len(ys_s))
+                    xs, ys_r, ys_s = xs[-m:], ys_r[-m:], ys_s[-m:]
+                    dpg.set_value("rsrp_series", [xs, ys_r])
                     if dpg.does_item_exist("sinr_series"):
-                        dpg.set_value("sinr_series", [xs, snap.sinr_series])
-                    x0, x1 = min(xs), max(xs)
-                    # Keep a readable window (avoid tiny early-sample zoom)
-                    span = max(x1 - x0, 5.0)
-                    dpg.set_axis_limits("x_axis_rsrp", x1 - span, x1 + 0.02 * span)
-                    # Re-assert fixed Y limits every frame (match matplotlib)
+                        dpg.set_value("sinr_series", [xs, ys_s])
+
+                    x1 = xs[-1]
+                    window_s = 30.0
+                    x0 = max(0.0, x1 - window_s)
+                    if x1 <= x0:
+                        x1 = x0 + 1.0
+                    dpg.set_axis_limits(getattr(self, "_x_axis", "x_axis_rsrp"), x0, x1 + 0.05)
+
                     rsrp_lo, rsrp_hi = cfg.plot.rsrp_ylim
                     sinr_lo, sinr_hi = cfg.plot.sinr_ylim
-                    dpg.set_axis_limits("y_axis_rsrp", float(rsrp_lo), float(rsrp_hi))
+                    dpg.set_axis_limits(
+                        getattr(self, "_y_rsrp", "y_axis_rsrp"), float(rsrp_lo), float(rsrp_hi)
+                    )
                     if dpg.does_item_exist("y_axis_sinr"):
-                        dpg.set_axis_limits("y_axis_sinr", float(sinr_lo), float(sinr_hi))
+                        dpg.set_axis_limits(
+                            getattr(self, "_y_sinr", "y_axis_sinr"), float(sinr_lo), float(sinr_hi)
+                        )
                 else:
                     xs = list(range(n))
-                    dpg.set_value("rsrp_series", [xs, snap.rsrp_series])
+                    dpg.set_value("rsrp_series", [xs, list(snap.rsrp_series)])
                     dpg.set_axis_limits("x_axis_rsrp", max(0, n - 200), max(1, n))
                     if snap.ris_angle_series and dpg.does_item_exist("ris_series"):
                         xs_b = list(range(len(snap.ris_angle_series)))
-                        dpg.set_value("ris_series", [xs_b, snap.ris_angle_series])
-                        dpg.set_value("rx_series", [xs_b, snap.rx_angle_series])
+                        dpg.set_value("ris_series", [xs_b, list(snap.ris_angle_series)])
+                        dpg.set_value("rx_series", [xs_b, list(snap.rx_angle_series)])
                         dpg.set_axis_limits("x_axis_beam", max(0, len(xs_b) - 200), max(1, len(xs_b)))
         finally:
             if dpg.is_dearpygui_running():

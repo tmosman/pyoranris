@@ -73,6 +73,8 @@ class MacRsrpTcpClient:
         self.connected = False
         self.last_error = ""
         self._t0_collect: int | None = None
+        self._t0_wall: float | None = None
+        self._last_collect_us: int | None = None
         self.last_ran_ue = 0
         self.samples_received = 0
 
@@ -80,6 +82,9 @@ class MacRsrpTcpClient:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self._t0_collect = None
+        self._t0_wall = None
+        self._last_collect_us = None
         self._thread = threading.Thread(target=self._reader_loop, daemon=True)
         self._thread.start()
         log.info("MAC RSRP client connecting to %s:%s", self.host, self.port)
@@ -146,14 +151,32 @@ class MacRsrpTcpClient:
                         if row is None:
                             continue
                         collect_us, ran_ue, rsrp, snr = row
+                        now = time.time()
+                        if self._t0_wall is None:
+                            self._t0_wall = now
                         if self._t0_collect is None:
                             self._t0_collect = collect_us
+
+                        # Prefer OAI collectStartTime when it actually advances.
+                        # Some builds repeat the same collect_us → fall back to wall clock
+                        # so the live plot X-axis keeps moving.
+                        collect_delta_s = (collect_us - self._t0_collect) * 1e-6
+                        if (
+                            self._last_collect_us is not None
+                            and collect_us > self._last_collect_us
+                            and collect_delta_s >= 1e-3
+                        ):
+                            t_rel_s = collect_delta_s
+                        else:
+                            t_rel_s = now - self._t0_wall
+                        self._last_collect_us = collect_us
+
                         sample = MacKpiSample(
                             collect_us=collect_us,
                             ran_ue=ran_ue,
                             rsrp=_map_sentinel(rsrp),
                             sinr=_map_sentinel(snr),
-                            t_rel_s=(collect_us - self._t0_collect) * 1e-6,
+                            t_rel_s=float(t_rel_s),
                         )
                         self.last_ran_ue = ran_ue
                         self.samples_received += 1
