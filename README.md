@@ -34,6 +34,7 @@ pyoranris run -c configs/offline_sim.yaml --headless
 |------|---------|
 | `configs/offline_sim.yaml` | No lab hardware — learn GUI / install check |
 | `configs/kpm_mac_rsrp.yaml` | **KPM path** — MAC RSRP/SINR + RIS REST beam control |
+| `configs/srs_cir.yaml` | **SRS path** — CIR/CFR live plots (replaces matplotlib plot-srs) |
 | `configs/lab_default.yaml` | IPs/ports frozen from the Jul 2026 working demo |
 | `configs/indoor_mobility.yaml` | Legacy MILCOM binary xApp mobility profile |
 
@@ -60,6 +61,7 @@ src/pyoranris/
 legacy/               # Phase-0 frozen originals
 docs/GOLDEN_PATH.md   # how the old demo was run
 docs/KPM_MAC_RSRP.md  # KPM GUI + wire format
+docs/SRS_CIR.md       # SRS CIR/CFR GUI + wire format
 docs/MIGRATION.md     # Phase 2 split map
 ```
 
@@ -106,6 +108,24 @@ curl -s -X POST http://localhost:8080/api/beam/apply \
 
 Full details: [`docs/KPM_MAC_RSRP.md`](docs/KPM_MAC_RSRP.md).
 
+## SRS CIR / CFR (channel sounding)
+
+Replaces matplotlib `srs_cir_tcp_plot.py` / `oai-flexric.sh plot-srs`.
+
+```bash
+# Terminal A — after RIC/gNB/UE are up
+SRS_CIR_TCP_MAX_BINS=1536 XAPP_DURATION=-1 \
+  ~/Program_scripts/flexric_scripts/oai-flexric.sh start xapp-srs
+
+# Terminal B
+pyoranris run -c configs/srs_cir.yaml
+```
+
+GUI: CFR (blue) on top, CIR (red, IFFT) on bottom — same layout as the matplotlib figure.
+Auto-reconnects to `127.0.0.1:8082`. See [`docs/SRS_CIR.md`](docs/SRS_CIR.md).
+
+Run **one** plot profile at a time (KPM `:8081` or SRS `:8082`).
+
 ## Legacy lab profile (binary xApp)
 
 ```bash
@@ -124,3 +144,4 @@ Do **not** run this profile together with KPM — both want TCP port 8081.
 - **Phase 1** — installable package + YAML configs + CLI — done
 - **Phase 2** — controller / devices / full GUI split — done
 - **KPM MAC TCP client** — RSRP/SINR + RIS angle monitoring — done
+- **SRS CIR/CFR TCP client** — replaces `srs_cir_tcp_plot.py` — done

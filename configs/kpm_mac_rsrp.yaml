@@ -39,7 +39,7 @@ network:
   ris_rest_url: "http://localhost:8080/api/beam/apply"
 
 plot:
-  rsrp_ylim: [-90.0, 0.0]
+  rsrp_ylim: [-90.0, 30.0]
   sinr_ylim: [-20.0, 50.0]
   ris_index_ylim: [0.0, 21.0]
   ris_angle_ylim: [0.0, 60.0]

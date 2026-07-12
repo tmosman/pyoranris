@@ -52,6 +52,7 @@ class DearPyGuiApp:
 
         cfg = self.controller.cfg
         kpm = cfg.features.mac_rsrp_tcp
+        srs = cfg.features.srs_cir_tcp
         dpg.create_context()
 
         font_path = cfg.devices.font_path
@@ -107,7 +108,11 @@ class DearPyGuiApp:
 
         btn_theme = self._theme_button(dpg)
 
-        if kpm:
+        if srs:
+            self._build_srs_layout(dpg, btn_theme, blue_line_theme, red_line_theme, orange_line_theme)
+            title = f"SRS CFR / CIR [{cfg.profile}]"
+            viewport = (1880, 1000)
+        elif kpm:
             self._build_kpm_layout(
                 dpg,
                 btn_theme,
@@ -131,7 +136,7 @@ class DearPyGuiApp:
         dpg.create_viewport(title=title, width=viewport[0], height=viewport[1])
         dpg.setup_dearpygui()
         dpg.show_viewport()
-        if kpm:
+        if kpm or srs:
             try:
                 dpg.maximize_viewport()
             except Exception:
@@ -139,6 +144,164 @@ class DearPyGuiApp:
         dpg.set_frame_callback(1, lambda: self._tick(dpg))
         dpg.start_dearpygui()
         dpg.destroy_context()
+
+    # ------------------------------------------------------------------
+    # SRS CIR/CFR layout (matplotlib srs_cir_tcp_plot replacement)
+    # ------------------------------------------------------------------
+    def _build_srs_layout(self, dpg, btn_theme, blue_theme, red_theme, orange_theme) -> None:
+        cfg = self.controller.cfg
+        ang_lo, ang_hi = cfg.plot.ris_angle_ylim
+        gap = 10
+        # Defaults matched to manual layout in lab screenshot (SRS ~70%, RIS ~30%)
+        win_w, win_h = 1280, 800
+        plot_w, plot_h = 1250, 330
+        ris_w = 540
+        ris_plot_w, ris_plot_h = 520, 680
+
+        with dpg.window(
+            label=f"SRS CFR / CIR — {cfg.network.host}:{cfg.network.srs_port}",
+            tag="srs_main_window",
+            width=win_w,
+            height=win_h,
+            pos=(gap, gap),
+            no_close=True,
+        ):
+            with dpg.group(horizontal=True):
+                b1 = dpg.add_button(label="Connect & Plot", callback=lambda: self.controller.start_plotting())
+                b2 = dpg.add_button(label="Stop", callback=lambda: self.controller.stop_plotting())
+                b3 = dpg.add_button(label="Clear", callback=lambda: self.controller.clear_series())
+                for b in (b1, b2, b3):
+                    dpg.bind_item_theme(b, btn_theme)
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("waiting for xApp…", tag="monitor_display", color=(255, 170, 60))
+                dpg.add_text("    frames:")
+                dpg.add_text("0", tag="srs_frames_display", color=(180, 180, 180))
+
+            with dpg.plot(label="##srs_cfr_plot", height=plot_h, width=plot_w, tag="srs_cfr_plot"):
+                dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthEast)
+                self._x_axis_cfr = dpg.add_plot_axis(
+                    dpg.mvXAxis, label="Subcarrier bin", tag="x_axis_cfr"
+                )
+                self._y_cfr = dpg.add_plot_axis(dpg.mvYAxis, label="CFR |H|", tag="y_axis_cfr")
+                dpg.add_line_series(
+                    [], [], label="CFR magnitude", parent=self._y_cfr, tag="cfr_series"
+                )
+                dpg.bind_item_theme("cfr_series", blue_theme)
+
+            dpg.add_spacer(height=6)
+
+            with dpg.plot(label="##srs_cir_plot", height=plot_h, width=plot_w, tag="srs_cir_plot"):
+                dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthEast)
+                self._x_axis_cir = dpg.add_plot_axis(
+                    dpg.mvXAxis, label="CIR tap (fftshifted)", tag="x_axis_cir"
+                )
+                self._y_cir = dpg.add_plot_axis(dpg.mvYAxis, label="CIR |h|", tag="y_axis_cir")
+                dpg.add_line_series(
+                    [], [], label="CIR magnitude", parent=self._y_cir, tag="cir_series"
+                )
+                dpg.bind_item_theme("cir_series", red_theme)
+
+        with dpg.window(
+            label="RIS Beam Angle",
+            tag="srs_ris_plot_window",
+            width=ris_w,
+            height=win_h,
+            pos=(gap + win_w + gap, gap),
+            no_close=True,
+        ):
+            with dpg.group(horizontal=True):
+                dpg.add_text(
+                    f"Index 0–{int(cfg.beams.max_ris_index)}  →  "
+                    f"{float(cfg.beams.ris_angle_min):.0f}–{float(cfg.beams.ris_angle_max):.0f}°",
+                    color=(160, 160, 160),
+                )
+            with dpg.group(horizontal=True):
+                dpg.add_text("Index:")
+                dpg.add_text("—", tag="ris_index_display", color=(40, 170, 90))
+                dpg.add_text("    Angle:")
+                dpg.add_text("—", tag="ris_angle_display", color=(230, 140, 40))
+            with dpg.plot(label="##srs_ris_angle_plot", height=ris_plot_h, width=ris_plot_w, tag="ris_beam_plot"):
+                dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthWest)
+                self._x_axis_ris = dpg.add_plot_axis(
+                    dpg.mvXAxis, label="Time from first sample (s)", tag="x_axis_ris"
+                )
+                self._y_ris_ang = dpg.add_plot_axis(
+                    dpg.mvYAxis, label="RIS angle (°)", tag="y_axis_ris_ang"
+                )
+                dpg.set_axis_limits(self._y_ris_ang, float(ang_lo), float(ang_hi))
+                dpg.add_line_series(
+                    [], [], label="RIS angle", parent=self._y_ris_ang, tag="ris_angle_series"
+                )
+                dpg.bind_item_theme("ris_angle_series", orange_theme)
+
+        ctrl_y = gap + win_h + gap
+        total_w = win_w + gap + ris_w
+        ctrl_w = (total_w - 2 * gap) // 3
+
+        with dpg.window(
+            label="SRS xApp",
+            tag="srs_controls",
+            width=ctrl_w,
+            height=170,
+            pos=(gap, ctrl_y),
+            no_close=True,
+        ):
+            with dpg.group(horizontal=True):
+                b_start = dpg.add_button(label="Start xapp-srs", callback=lambda: self._srs_start())
+                b_stop = dpg.add_button(label="Stop xapp-srs", callback=lambda: self._srs_stop())
+                b_stat = dpg.add_button(label="Status", callback=lambda: self.controller.status_srs_xapp())
+                for b in (b_start, b_stop, b_stat):
+                    dpg.bind_item_theme(b, btn_theme)
+            dpg.add_spacer(height=4)
+            dpg.add_text("disconnected", tag="server_status_text", color=(200, 200, 200))
+            dpg.add_text(
+                f"TCP client → {cfg.network.host}:{cfg.network.srs_port}",
+                tag="xApp_status_text",
+            )
+            dpg.add_text(f"max_bins={cfg.lab_ops.srs_max_bins}  (META + CFR IQ lines)")
+
+        with dpg.window(
+            label="RIS Control",
+            tag="srs_ris",
+            width=ctrl_w,
+            height=170,
+            pos=(gap * 2 + ctrl_w, ctrl_y),
+            no_close=True,
+        ):
+            dpg.add_text(f"POST {cfg.network.ris_rest_url}", wrap=ctrl_w - 20)
+            dpg.add_spacer(height=4)
+            with dpg.group(horizontal=True):
+                dpg.add_input_int(
+                    label="Beam index",
+                    tag="ris_input",
+                    default_value=int(cfg.beams.default_ris_index),
+                    width=120,
+                    min_value=0,
+                    max_value=int(cfg.beams.max_ris_index),
+                )
+                b_apply = dpg.add_button(label="Apply", callback=lambda: self._apply_ris_rest())
+                dpg.bind_item_theme(b_apply, btn_theme)
+            dpg.add_spacer(height=4)
+            dpg.add_text("Current: —", tag="ris_display")
+            dpg.add_text("", tag="ris_result", wrap=ctrl_w - 20)
+
+        with dpg.window(
+            label="Session",
+            tag="srs_session",
+            width=ctrl_w,
+            height=170,
+            pos=(gap * 3 + 2 * ctrl_w, ctrl_y),
+            no_close=True,
+        ):
+            dpg.add_text(f"Profile: {cfg.profile}")
+            log_path = self.controller.snapshot.log_path or "(logging off)"
+            dpg.add_text(f"Log: {log_path}", wrap=ctrl_w - 20, tag="srs_log_path")
+            dpg.add_spacer(height=6)
+            dpg.add_text(
+                "Blue/Red = CFR/CIR · Orange = RIS angle",
+                color=(160, 160, 160),
+            )
 
     # ------------------------------------------------------------------
     # KPM-only clean layout (matplotlib replacement)
@@ -442,6 +605,14 @@ class DearPyGuiApp:
         msg = self.controller.stop_xapp_server()
         self.controller._set(xapp_status=msg)
 
+    def _srs_start(self) -> None:
+        msg = self.controller.start_srs_xapp()
+        self.controller._set(xapp_status=msg)
+
+    def _srs_stop(self) -> None:
+        msg = self.controller.stop_srs_xapp()
+        self.controller._set(xapp_status=msg)
+
     def _robot_move(self) -> None:
         import dearpygui.dearpygui as dpg
 
@@ -483,8 +654,99 @@ class DearPyGuiApp:
             snap = self.controller.get_snapshot()
             cfg = self.controller.cfg
             kpm = cfg.features.mac_rsrp_tcp
+            srs = cfg.features.srs_cir_tcp
 
-            if snap.current_rsrp == snap.current_rsrp:
+            if srs:
+                conn = "connected" if snap.srs_connected else "waiting for xApp…"
+                if dpg.does_item_exist("monitor_display"):
+                    dpg.set_value(
+                        "monitor_display",
+                        snap.monitor_msg
+                        or f"rnti={snap.srs_rnti or '?'} sfn={snap.srs_sfn or '?'} [{conn}]",
+                    )
+                if dpg.does_item_exist("srs_frames_display"):
+                    dpg.set_value("srs_frames_display", str(snap.srs_frames))
+                if dpg.does_item_exist("server_status_text"):
+                    dpg.set_value("server_status_text", conn)
+                if dpg.does_item_exist("xApp_status_text"):
+                    dpg.set_value(
+                        "xApp_status_text",
+                        f"TCP client → {cfg.network.host}:{cfg.network.srs_port}  ·  {conn}",
+                    )
+                if snap.current_ris_beam is not None:
+                    ang = snap.current_ris_angle
+                    ang_s = f"{ang:.1f}°" if ang == ang else "—"
+                    live = f"{snap.current_ris_beam} ({ang_s})"
+                    if dpg.does_item_exist("ris_display"):
+                        dpg.set_value("ris_display", f"Current: {live}")
+                    if dpg.does_item_exist("ris_index_display"):
+                        dpg.set_value("ris_index_display", str(snap.current_ris_beam))
+                    if dpg.does_item_exist("ris_angle_display"):
+                        dpg.set_value("ris_angle_display", ang_s)
+                if snap.ris_status and dpg.does_item_exist("ris_result"):
+                    cur = dpg.get_value("ris_result")
+                    if not cur or cur.startswith("OK") or cur.startswith("HTTP") or "Applied" in str(cur) or cur.startswith("TCP") or cur.startswith("local") or cur.startswith("startup"):
+                        dpg.set_value("ris_result", snap.ris_status)
+
+                if snap.cfr_mag and dpg.does_item_exist("cfr_series"):
+                    xs_cfr = list(range(len(snap.cfr_mag)))
+                    xs_cir = list(range(len(snap.cir_mag)))
+                    dpg.set_value("cfr_series", [xs_cfr, list(snap.cfr_mag)])
+                    if dpg.does_item_exist("cir_series"):
+                        dpg.set_value("cir_series", [xs_cir, list(snap.cir_mag)])
+
+                    floor = float(cfg.plot.srs_ylim_floor)
+                    peak = max(
+                        max(snap.cfr_mag) if snap.cfr_mag else 0.0,
+                        max(snap.cir_mag) if snap.cir_mag else 0.0,
+                        floor,
+                    )
+                    cfr_lo, cfr_hi = cfg.plot.cfr_ylim
+                    cir_lo, cir_hi = cfg.plot.cir_ylim
+                    if float(cfr_hi) <= float(cfr_lo):
+                        cfr_lo, cfr_hi = 0.0, peak * 1.05
+                    if float(cir_hi) <= float(cir_lo):
+                        cir_lo, cir_hi = 0.0, peak * 1.05
+
+                    dpg.set_axis_limits(
+                        getattr(self, "_x_axis_cfr", "x_axis_cfr"), -0.5, max(0.5, len(snap.cfr_mag) - 0.5)
+                    )
+                    dpg.set_axis_limits(
+                        getattr(self, "_x_axis_cir", "x_axis_cir"), -0.5, max(0.5, len(snap.cir_mag) - 0.5)
+                    )
+                    dpg.set_axis_limits(
+                        getattr(self, "_y_cfr", "y_axis_cfr"), float(cfr_lo), float(cfr_hi)
+                    )
+                    dpg.set_axis_limits(
+                        getattr(self, "_y_cir", "y_axis_cir"), float(cir_lo), float(cir_hi)
+                    )
+
+                # RIS angle time series (step-hold with SRS clock)
+                ys_a = self._ffill(snap.ris_angle_series)
+                if ys_a and snap.t_rel_series and dpg.does_item_exist("ris_angle_series"):
+                    xs = [float(v) for v in snap.t_rel_series]
+                    m = min(len(xs), len(ys_a))
+                    xs, ys_a = xs[-m:], ys_a[-m:]
+                    dpg.set_value("ris_angle_series", [xs, ys_a])
+                    x1 = xs[-1]
+                    window_s = 30.0
+                    x0 = max(0.0, x1 - window_s)
+                    if x1 <= x0:
+                        x1 = x0 + 1.0
+                    if dpg.does_item_exist("x_axis_ris"):
+                        dpg.set_axis_limits(
+                            getattr(self, "_x_axis_ris", "x_axis_ris"), x0, x1 + 0.05
+                        )
+                    if dpg.does_item_exist("y_axis_ris_ang"):
+                        ang_lo, ang_hi = cfg.plot.ris_angle_ylim
+                        dpg.set_axis_limits(
+                            getattr(self, "_y_ris_ang", "y_axis_ris_ang"),
+                            float(ang_lo),
+                            float(ang_hi),
+                        )
+                return
+
+            if snap.current_rsrp == snap.current_rsrp and dpg.does_item_exist("rsrp_display"):
                 dpg.set_value("rsrp_display", f"{snap.current_rsrp:.1f} dBm")
             if kpm and dpg.does_item_exist("sinr_display"):
                 if snap.current_sinr == snap.current_sinr:

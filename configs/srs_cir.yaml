@@ -1,0 +1,70 @@
+# SRS CIR / CFR — replaces matplotlib srs_cir_tcp_plot.py
+#
+# Architecture:
+#   xapp_srs_ind --srs-cir-tcp 127.0.0.1:8082   ← TCP *server*
+#   pyoranris (this profile)                   ← TCP *client* + DearPyGui
+#
+# Flow:
+#   1) Start RIC + gNB + UE as usual
+#   2) Start SRS xApp (GUI button or):
+#        SRS_CIR_TCP_MAX_BINS=1536 XAPP_DURATION=-1 \
+#          ~/Program_scripts/flexric_scripts/oai-flexric.sh start xapp-srs
+#   3) pyoranris run -c configs/srs_cir.yaml
+#
+# Do not run together with configs/kpm_mac_rsrp.yaml in the same GUI
+# (one xApp / plot profile at a time). KPM uses :8081, SRS uses :8082.
+
+profile: srs_cir
+
+features:
+  xapp_server: false
+  xapp_client: false
+  mac_rsrp_tcp: false
+  srs_cir_tcp: true
+  auto_connect_srs_cir: true
+  ris: false
+  ris_rest: true
+  auto_apply_ris_on_start: true
+  ue_evk: false
+  marvelmind: false
+  robot_redis: false
+  gps: false
+  quectel: false
+  record_mobility: false
+  data_collection: false
+  simulate_rsrp: false
+  mobility_reopt: false
+  auto_start_xapp: false
+
+network:
+  host: "127.0.0.1"
+  xapp_port: 8081
+  srs_port: 8082
+  ris_rest_url: "http://localhost:8080/api/beam/apply"
+
+plot:
+  # ymin,ymax — if ymax <= ymin, GUI auto-scales from live peaks
+  cfr_ylim: [0.0, 0.0]
+  cir_ylim: [0.0, 0.0]
+  srs_ylim_floor: 1.0
+  ris_angle_ylim: [20.0, 60.0]
+  max_points: 600
+
+beams:
+  max_ris_index: 21
+  default_ris_index: 1
+  ris_angle_min: 20.0
+  ris_angle_max: 60.0
+
+lab_ops:
+  flexric_script: "~/Program_scripts/flexric_scripts/oai-flexric.sh"
+  xapp_duration: -1
+  srs_max_bins: 1536
+  # Optional IFFT zero-pad; 0 = use META n_fft / n_bins
+  srs_fft_size: 0
+
+logging:
+  root_dir: "data"
+
+devices:
+  font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"

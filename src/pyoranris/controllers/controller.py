@@ -25,8 +25,9 @@ from pyoranris.models.constants import Constants
 from pyoranris.net.camera_server import CameraTCPServer
 from pyoranris.net.lab_tcp import LabTCPClient
 from pyoranris.net.mac_rsrp_client import MacKpiSample, MacRsrpTcpClient
+from pyoranris.net.srs_cir_client import SrsCirTcpClient, SrsFrame
 from pyoranris.net.xapp_server import XAppServer
-from pyoranris.lab.flexric_ops import FlexricKpmLauncher
+from pyoranris.lab.flexric_ops import FlexricKpmLauncher, FlexricSrsLauncher
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class RuntimeSnapshot:
     mobility_active: bool = False
     plotting: bool = False
     mac_connected: bool = False
+    srs_connected: bool = False
     current_rsrp: float = float("nan")
     current_sinr: float = float("nan")
     ran_ue_id: int = 0
@@ -56,6 +58,16 @@ class RuntimeSnapshot:
     ris_index_series: list[float] = field(default_factory=list)
     ris_angle_series: list[float] = field(default_factory=list)
     rx_angle_series: list[float] = field(default_factory=list)
+    # Latest SRS frame (not a time series)
+    cfr_mag: list[float] = field(default_factory=list)
+    cir_mag: list[float] = field(default_factory=list)
+    srs_rnti: int = 0
+    srs_ue_id: int = 0
+    srs_sfn: int = 0
+    srs_slot: int = 0
+    srs_peak_bin: int = -1
+    srs_peak_mag: float = float("nan")
+    srs_frames: int = 0
     log_path: str = ""
 
 
@@ -76,6 +88,7 @@ class Controller:
         self._plot_thread: threading.Thread | None = None
         self._sim_thread: threading.Thread | None = None
         self._sweep_lock = threading.Lock()
+        self._srs_t0: float | None = None
 
         self.mobility = False
         self.ris_beamsweep_status = False
@@ -100,7 +113,9 @@ class Controller:
         # Devices / servers (lazy-safe)
         self.xapp: XAppServer | None = None
         self.mac_client: MacRsrpTcpClient | None = None
+        self.srs_client: SrsCirTcpClient | None = None
         self.flexric: FlexricKpmLauncher | None = None
+        self.flexric_srs: FlexricSrsLauncher | None = None
         self.xapp_monitor: LabTCPClient | None = None
         self.oai_ue: LabTCPClient | None = None
         self.gps: LabTCPClient | None = None
@@ -125,6 +140,24 @@ class Controller:
                 duration=cfg.lab_ops.xapp_duration,
             )
             self._set(xapp_status=f"KPM client → {cfg.network.host}:{cfg.network.xapp_port}")
+
+        if cfg.features.srs_cir_tcp:
+            fft = int(cfg.lab_ops.srs_fft_size) or None
+            self.srs_client = SrsCirTcpClient(
+                cfg.network.host,
+                cfg.network.srs_port,
+                fft_size=fft,
+            )
+            self.flexric_srs = FlexricSrsLauncher(
+                script=cfg.lab_ops.flexric_script,
+                host=cfg.network.host,
+                port=cfg.network.srs_port,
+                max_bins=cfg.lab_ops.srs_max_bins,
+                duration=cfg.lab_ops.xapp_duration,
+            )
+            self._set(
+                xapp_status=f"SRS CIR client → {cfg.network.host}:{cfg.network.srs_port}"
+            )
 
         # Legacy MILCOM binary server (do NOT enable with mac_rsrp_tcp — both want :8081)
         if cfg.features.xapp_server and not cfg.features.mac_rsrp_tcp:
@@ -192,6 +225,7 @@ class Controller:
         with self._lock:
             s = self.snapshot
             mac_ok = bool(self.mac_client and self.mac_client.connected)
+            srs_ok = bool(self.srs_client and self.srs_client.connected)
             return RuntimeSnapshot(
                 status=s.status,
                 monitor_msg=s.monitor_msg,
@@ -201,6 +235,7 @@ class Controller:
                 mobility_active=s.mobility_active,
                 plotting=s.plotting,
                 mac_connected=mac_ok,
+                srs_connected=srs_ok,
                 current_rsrp=s.current_rsrp,
                 current_sinr=s.current_sinr,
                 ran_ue_id=s.ran_ue_id,
@@ -214,6 +249,15 @@ class Controller:
                 ris_index_series=list(s.ris_index_series),
                 ris_angle_series=list(s.ris_angle_series),
                 rx_angle_series=list(s.rx_angle_series),
+                cfr_mag=list(s.cfr_mag),
+                cir_mag=list(s.cir_mag),
+                srs_rnti=s.srs_rnti,
+                srs_ue_id=s.srs_ue_id,
+                srs_sfn=s.srs_sfn,
+                srs_slot=s.srs_slot,
+                srs_peak_bin=s.srs_peak_bin,
+                srs_peak_mag=s.srs_peak_mag,
+                srs_frames=s.srs_frames,
                 log_path=s.log_path,
             )
 
@@ -274,14 +318,47 @@ class Controller:
                 self.snapshot.ris_index_series = self.snapshot.ris_index_series[-max_n:]
                 self.snapshot.ris_angle_series = self.snapshot.ris_angle_series[-max_n:]
 
+    def _apply_srs_frame(self, frame: SrsFrame) -> None:
+        max_n = int(self.cfg.plot.max_points)
+        with self._lock:
+            self.snapshot.cfr_mag = [float(v) for v in frame.cfr_mag]
+            self.snapshot.cir_mag = [float(v) for v in frame.cir_mag]
+            self.snapshot.srs_rnti = int(frame.rnti)
+            self.snapshot.srs_ue_id = int(frame.ue_id)
+            self.snapshot.srs_sfn = int(frame.sfn)
+            self.snapshot.srs_slot = int(frame.slot)
+            self.snapshot.srs_peak_bin = int(frame.peak_cfr_bin)
+            self.snapshot.srs_peak_mag = float(frame.peak_cfr_mag)
+            self.snapshot.srs_frames = int(self.srs_client.frames_received) if self.srs_client else 0
+
+            # Step-hold RIS angle on the same clock as the SRS stream
+            if self.snapshot.current_ris_beam is not None:
+                if self._srs_t0 is None:
+                    self._srs_t0 = time.time()
+                t_rel = time.time() - self._srs_t0
+                ris_idx = int(self.snapshot.current_ris_beam)
+                ris_ang = float(self.snapshot.current_ris_angle)
+                if ris_ang != ris_ang:
+                    ris_ang = self._ris_angle_for(ris_idx)
+                    self.snapshot.current_ris_angle = ris_ang
+                self.snapshot.t_rel_series.append(float(t_rel))
+                self.snapshot.ris_index_series.append(float(ris_idx))
+                self.snapshot.ris_angle_series.append(float(ris_ang))
+                if len(self.snapshot.ris_angle_series) > max_n:
+                    self.snapshot.t_rel_series = self.snapshot.t_rel_series[-max_n:]
+                    self.snapshot.ris_index_series = self.snapshot.ris_index_series[-max_n:]
+                    self.snapshot.ris_angle_series = self.snapshot.ris_angle_series[-max_n:]
+
     # ---- lifecycle ----
     def start_background_workers(self) -> None:
         self._stop.clear()
-        if self.cfg.features.simulate_rsrp and not self.cfg.features.mac_rsrp_tcp:
+        if self.cfg.features.simulate_rsrp and not self.cfg.features.mac_rsrp_tcp and not self.cfg.features.srs_cir_tcp:
             self._sim_thread = threading.Thread(target=self._sim_kpi_loop, daemon=True)
             self._sim_thread.start()
             log.info("Offline KPI simulator running")
         if self.cfg.features.mac_rsrp_tcp and self.cfg.features.auto_connect_mac_rsrp:
+            self.start_plotting()
+        if self.cfg.features.srs_cir_tcp and self.cfg.features.auto_connect_srs_cir:
             self.start_plotting()
 
     def stop_background_workers(self) -> None:
@@ -289,6 +366,8 @@ class Controller:
         self._stop.set()
         if self.mac_client:
             self.mac_client.stop()
+        if self.srs_client:
+            self.srs_client.stop()
         if self.xapp:
             self.xapp.stop_server()
         if self.camera:
@@ -344,7 +423,30 @@ class Controller:
         self._set(xapp_status=msg[:200])
         return msg
 
+    def start_srs_xapp(self) -> str:
+        if not self.flexric_srs:
+            return "SRS launcher not configured (enable srs_cir_tcp)"
+        msg = self.flexric_srs.start()
+        self._set(xapp_status=msg)
+        return msg
+
+    def stop_srs_xapp(self) -> str:
+        if not self.flexric_srs:
+            return "SRS launcher not configured (enable srs_cir_tcp)"
+        msg = self.flexric_srs.stop()
+        self._set(xapp_status=msg)
+        return msg
+
+    def status_srs_xapp(self) -> str:
+        if not self.flexric_srs:
+            return "SRS launcher not configured (enable srs_cir_tcp)"
+        msg = self.flexric_srs.status()
+        self._set(xapp_status=msg[:200])
+        return msg
+
     def start_xapp_server(self) -> str:
+        if self.cfg.features.srs_cir_tcp:
+            return self.start_srs_xapp()
         if self.cfg.features.mac_rsrp_tcp:
             return self.start_kpm_xapp()
         if not self.xapp:
@@ -354,6 +456,8 @@ class Controller:
         return "xApp Started"
 
     def stop_xapp_server(self) -> str:
+        if self.cfg.features.srs_cir_tcp:
+            return self.stop_srs_xapp()
         if self.cfg.features.mac_rsrp_tcp:
             return self.stop_kpm_xapp()
         if not self.xapp:
@@ -521,12 +625,33 @@ class Controller:
             self.snapshot.ris_index_series.clear()
             self.snapshot.ris_angle_series.clear()
             self.snapshot.rx_angle_series.clear()
+            self.snapshot.cfr_mag.clear()
+            self.snapshot.cir_mag.clear()
+        self._srs_t0 = None
         self.monitor.reset()
         self.constants.counter = -1
 
     def start_plotting(self) -> None:
         if self._plot_thread and self._plot_thread.is_alive():
             return
+        if self.cfg.features.srs_cir_tcp:
+            if self.srs_client is None:
+                fft = int(self.cfg.lab_ops.srs_fft_size) or None
+                self.srs_client = SrsCirTcpClient(
+                    self.cfg.network.host,
+                    self.cfg.network.srs_port,
+                    fft_size=fft,
+                )
+            self.srs_client.start()
+            self._plot_stop.clear()
+            self._set(
+                plotting=True,
+                status=f"SRS CIR ← {self.cfg.network.host}:{self.cfg.network.srs_port}",
+            )
+            self._plot_thread = threading.Thread(target=self._srs_receive_loop, daemon=True)
+            self._plot_thread.start()
+            return
+
         if self.cfg.features.mac_rsrp_tcp:
             if self.mac_client is None:
                 self.mac_client = MacRsrpTcpClient(
@@ -543,7 +668,9 @@ class Controller:
             return
 
         if self._kpi_queue() is None and not self.cfg.features.simulate_rsrp:
-            self._set(status="No KPI source (enable xapp_server, mac_rsrp_tcp, or simulate_rsrp)")
+            self._set(
+                status="No KPI source (enable xapp_server, mac_rsrp_tcp, srs_cir_tcp, or simulate_rsrp)"
+            )
             return
         self._plot_stop.clear()
         self._set(plotting=True, status="Plotting RSRP")
@@ -554,12 +681,32 @@ class Controller:
         self._plot_stop.set()
         self._set(plotting=False, status="Plotting stopped")
         if self.mac_client and self.cfg.features.mac_rsrp_tcp:
-            # keep process alive but stop reader when leaving plot mode? reconnect is fine —
-            # stop client so we don't fill queue forever
             self.mac_client.stop()
+        if self.srs_client and self.cfg.features.srs_cir_tcp:
+            self.srs_client.stop()
         if self._plot_thread:
             self._plot_thread.join(timeout=2)
             self._plot_thread = None
+
+    def _srs_receive_loop(self) -> None:
+        assert self.srs_client is not None
+        q = self.srs_client.data_queue
+        while not self._plot_stop.is_set() and not self._stop.is_set():
+            try:
+                frame = q.get(timeout=0.5)
+            except Exception:
+                continue
+            if not isinstance(frame, SrsFrame):
+                continue
+            self._apply_srs_frame(frame)
+            status = "connected" if self.srs_client.connected else "waiting for xApp…"
+            self._set(
+                monitor_msg=(
+                    f"rnti={frame.rnti} ue={frame.ue_id} "
+                    f"sfn={frame.sfn}.{frame.slot} peak={frame.peak_cfr_bin} [{status}]"
+                ),
+                xapp_status=status,
+            )
 
     def _mac_receive_loop(self) -> None:
         assert self.mac_client is not None

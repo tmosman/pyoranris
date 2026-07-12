@@ -47,6 +47,9 @@ class FeaturesConfig:
     auto_start_xapp: bool = False
     # Start MacRsrpTcpClient when GUI starts (KPM profile)
     auto_connect_mac_rsrp: bool = False
+    # SRS CIR/CFR TCP client (xapp_srs_ind --srs-cir-tcp). GUI is client; xApp is server.
+    srs_cir_tcp: bool = False
+    auto_connect_srs_cir: bool = False
     # POST default RIS beam at startup so angle plot tracks from first sample
     auto_apply_ris_on_start: bool = False
 
@@ -57,6 +60,10 @@ class PlotConfig:
     sinr_ylim: list[float] = field(default_factory=lambda: [-20.0, 50.0])
     ris_index_ylim: list[float] = field(default_factory=lambda: [0.0, 21.0])
     ris_angle_ylim: list[float] = field(default_factory=lambda: [20.0, 60.0])
+    # SRS: if ymax <= ymin, GUI auto-scales from live peaks
+    cfr_ylim: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    cir_ylim: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    srs_ylim_floor: float = 1.0
     max_points: int = 600
 
 
@@ -65,12 +72,15 @@ class LabOpsConfig:
     flexric_script: str = "~/Program_scripts/flexric_scripts/oai-flexric.sh"
     kpm_report_period_ms: int = 100
     xapp_duration: int = -1
+    srs_max_bins: int = 1536
+    srs_fft_size: int = 0  # 0 = use META n_fft
 
 
 @dataclass
 class NetworkConfig:
     host: str = "127.0.0.1"
     xapp_port: int = 8081
+    srs_port: int = 8082
     xapp_monitor_port: int = 5005
     rsrp_port: int = 10000
     ris_host: str = "192.168.10.123"
@@ -156,6 +166,7 @@ def _apply_env(cfg: AppConfig) -> AppConfig:
         "PYORANRIS_HOST": ("network", "host", str),
         "PYORANRIS_XAPP_HOST": ("network", "host", str),
         "PYORANRIS_XAPP_PORT": ("network", "xapp_port", int),
+        "PYORANRIS_SRS_PORT": ("network", "srs_port", int),
         "PYORANRIS_RSRP_PORT": ("network", "rsrp_port", int),
         "PYORANRIS_RIS_HOST": ("network", "ris_host", str),
         "PYORANRIS_RIS_PORT": ("network", "ris_port", int),
