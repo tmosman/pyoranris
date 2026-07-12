@@ -72,6 +72,20 @@ class LegacyBeamIndexOptimizer:
         return np.array([cur, cur - 1])
 
 
+class BeamIndexOptimizer2(LegacyBeamIndexOptimizer):
+    """Port of classes_file.BeamIndexOptimizer2 used by mobility re-opt."""
+
+    def get_rx_beam_index_range(self) -> np.ndarray:
+        cur = self.current_rx_index
+        if 3 < cur < self.max_rx_index:
+            return np.array([cur - 1, cur, cur + 1])
+        if cur == 10:
+            return np.array([cur - 1, cur])
+        if cur == 3:
+            return np.array([cur, cur + 1])
+        return np.array([cur, cur - 1])
+
+
 class BeamSearch:
     """Sweep candidate beams using a measurement callback."""
 

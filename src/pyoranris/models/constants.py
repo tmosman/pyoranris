@@ -10,6 +10,9 @@ class Constants:
     cap_len: int = 1
     update_window: int = 1001
     counter: int = -1
+    check_begin: int | None = None
+    data_counter: int = -1
+    run_term: int = 1
     window_len: int = 5
     current_rsrp: float = 0.0
     detect_rsrp: float = 0.0

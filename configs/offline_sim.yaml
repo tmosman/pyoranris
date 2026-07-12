@@ -16,6 +16,8 @@ features:
   record_mobility: true
   data_collection: false
   simulate_rsrp: true
+  mobility_reopt: false
+  auto_start_xapp: false
 
 network:
   host: "127.0.0.1"

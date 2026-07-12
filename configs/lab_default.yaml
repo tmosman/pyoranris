@@ -17,6 +17,8 @@ features:
   quectel: false
   record_mobility: true
   data_collection: false
+  mobility_reopt: false
+  auto_start_xapp: false
 
 network:
   host: "127.0.0.1"

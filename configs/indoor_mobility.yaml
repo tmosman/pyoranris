@@ -1,6 +1,4 @@
 # Indoor UE mobility demo — enable services you actually have online.
-# Start from lab_default and override.
-
 extends: lab_default.yaml
 
 profile: indoor_mobility
@@ -12,6 +10,8 @@ features:
   ue_evk: false
   marvelmind: false
   record_mobility: true
+  mobility_reopt: false
+  auto_start_xapp: false
 
 logging:
   root_dir: "data"

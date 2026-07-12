@@ -40,6 +40,8 @@ class FeaturesConfig:
     record_mobility: bool = True
     data_collection: bool = False
     simulate_rsrp: bool = False
+    mobility_reopt: bool = False  # apply joint_bs on RSRP drop (off in frozen demo)
+    auto_start_xapp: bool = False
 
 
 @dataclass

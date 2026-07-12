@@ -70,8 +70,18 @@ pytest -q
 
 gNB / RIC / CN / EVK steps are documented in [`docs/LAB_SETUP.md`](docs/LAB_SETUP.md) (templated — edit for your machine).
 
+## Lab profile (hardware)
+
+```bash
+# edit configs/indoor_mobility.yaml hosts for your VLAN
+pip install -e ".[lab]"
+pyoranris run -c configs/indoor_mobility.yaml
+```
+
+Then in the GUI: **Start** (xApp server) → **Plot RSRP**. Optional: **Activate Test** for mobility monitoring.
+
 ## Status
 
 - **Phase 0** — golden path + legacy freeze — done
 - **Phase 1** — installable package + YAML configs + CLI — done
-- **Phase 2** — split `legacy/INDOORS_MILCOM_DEMO_debugging_v2.py` god-class into controller/GUI — next
+- **Phase 2** — controller / devices / full GUI split — done

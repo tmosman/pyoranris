@@ -18,8 +18,12 @@ dependencies = [
 [project.optional-dependencies]
 gui = ["dearpygui>=1.11"]
 positioning = ["pyserial>=3.5"]
+ue = ["rpyc>=5.3"]
+robot = ["redis>=5.0"]
+mobility = ["scipy>=1.11"]
 vision = ["ultralytics", "opencv-python", "torch"]
 dev = ["pytest>=7.4", "ruff>=0.5"]
+lab = ["pyoranris[gui,positioning,ue,robot,mobility]"]
 
 [project.scripts]
 pyoranris = "pyoranris.cli:main"
