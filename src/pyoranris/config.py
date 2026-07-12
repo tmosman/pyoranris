@@ -47,12 +47,16 @@ class FeaturesConfig:
     auto_start_xapp: bool = False
     # Start MacRsrpTcpClient when GUI starts (KPM profile)
     auto_connect_mac_rsrp: bool = False
+    # POST default RIS beam at startup so angle plot tracks from first sample
+    auto_apply_ris_on_start: bool = False
 
 
 @dataclass
 class PlotConfig:
     rsrp_ylim: list[float] = field(default_factory=lambda: [-90.0, -40.0])
     sinr_ylim: list[float] = field(default_factory=lambda: [-20.0, 50.0])
+    ris_index_ylim: list[float] = field(default_factory=lambda: [0.0, 21.0])
+    ris_angle_ylim: list[float] = field(default_factory=lambda: [20.0, 60.0])
     max_points: int = 600
 
 
@@ -97,18 +101,22 @@ class DevicesConfig:
 @dataclass
 class BeamsConfig:
     max_ris_index: int = 182
+    # Applied at startup when auto_apply_ris_on_start is true
+    default_ris_index: int = 1
     beam_interval: int = 1
     rx_angles: list[float] = field(
         default_factory=lambda: [-27, -21, -15, -9, -3, 0, 3, 9, 15, 21, 27]
     )
     window_len: int = 5
     update_window: int = 1001
+    # Linear map for compact RIS panels (KPM): index 0..max → angle_min..angle_max
+    ris_angle_min: float = 20.0
+    ris_angle_max: float = 60.0
 
 
 @dataclass
 class LoggingConfig:
     root_dir: str = "data"
-    mobility_subdir: str = "UE_Mobility"
     coverage_subdir: str = "Coverage_Datasets"
 
 

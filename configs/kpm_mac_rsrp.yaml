@@ -21,6 +21,7 @@ features:
   auto_connect_mac_rsrp: true
   ris: false
   ris_rest: true
+  auto_apply_ris_on_start: true
   ue_evk: false
   marvelmind: false
   robot_redis: false
@@ -38,9 +39,17 @@ network:
   ris_rest_url: "http://localhost:8080/api/beam/apply"
 
 plot:
-  rsrp_ylim: [-90.0, -40.0]
+  rsrp_ylim: [-90.0, 0.0]
   sinr_ylim: [-20.0, 50.0]
+  ris_index_ylim: [0.0, 21.0]
+  ris_angle_ylim: [0.0, 60.0]
   max_points: 600
+
+beams:
+  max_ris_index: 21
+  default_ris_index: 1
+  ris_angle_min: 20.0
+  ris_angle_max: 60.0
 
 lab_ops:
   flexric_script: "~/Program_scripts/flexric_scripts/oai-flexric.sh"
@@ -49,7 +58,6 @@ lab_ops:
 
 logging:
   root_dir: "data"
-  mobility_subdir: "UE_Mobility"
 
 devices:
   font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"

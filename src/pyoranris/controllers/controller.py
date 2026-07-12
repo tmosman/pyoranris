@@ -13,7 +13,7 @@ from datetime import datetime
 import numpy as np
 
 from pyoranris.algorithms.beam_optimizer import BeamIndexOptimizer, BeamIndexOptimizer2, BeamSearch
-from pyoranris.algorithms.mobility import RSRPMonitor, index_to_angles
+from pyoranris.algorithms.mobility import RSRPMonitor, index_to_angles, ris_index_to_angle
 from pyoranris.config import AppConfig
 from pyoranris.data.experiment_logger import ExperimentLogger
 from pyoranris.devices.marvelmind_device import PositionDevice
@@ -48,10 +48,12 @@ class RuntimeSnapshot:
     ran_ue_id: int = 0
     current_ris_beam: int | None = None
     current_rx_index: int | None = None
+    current_ris_angle: float = float("nan")
     ris_status: str = ""
     t_rel_series: list[float] = field(default_factory=list)
     rsrp_series: list[float] = field(default_factory=list)
     sinr_series: list[float] = field(default_factory=list)
+    ris_index_series: list[float] = field(default_factory=list)
     ris_angle_series: list[float] = field(default_factory=list)
     rx_angle_series: list[float] = field(default_factory=list)
     log_path: str = ""
@@ -90,7 +92,6 @@ class Controller:
             schema = "kpm" if cfg.features.mac_rsrp_tcp else "demo"
             self.logger = ExperimentLogger(
                 root_dir=cfg.logging.root_dir,
-                mobility_subdir=cfg.logging.mobility_subdir,
                 schema=schema,
             )
             self.snapshot.log_path = str(self.logger.csv_path)
@@ -112,6 +113,9 @@ class Controller:
         self.ue: UEEvkDevice | None = None
         self.robot: RobotDevice | None = None
         self.position: PositionDevice | None = None
+
+        if cfg.features.auto_apply_ris_on_start and (self.ris_rest is not None or cfg.features.ris):
+            threading.Thread(target=self._bootstrap_default_ris, daemon=True).start()
 
         if cfg.features.mac_rsrp_tcp:
             self.mac_client = MacRsrpTcpClient(cfg.network.host, cfg.network.xapp_port)
@@ -202,10 +206,12 @@ class Controller:
                 ran_ue_id=s.ran_ue_id,
                 current_ris_beam=s.current_ris_beam,
                 current_rx_index=s.current_rx_index,
+                current_ris_angle=s.current_ris_angle,
                 ris_status=s.ris_status,
                 t_rel_series=list(s.t_rel_series),
                 rsrp_series=list(s.rsrp_series),
                 sinr_series=list(s.sinr_series),
+                ris_index_series=list(s.ris_index_series),
                 ris_angle_series=list(s.ris_angle_series),
                 rx_angle_series=list(s.rx_angle_series),
                 log_path=s.log_path,
@@ -231,19 +237,42 @@ class Controller:
                 self.snapshot.ris_angle_series = self.snapshot.ris_angle_series[-max_n:]
                 self.snapshot.rx_angle_series = self.snapshot.rx_angle_series[-max_n:]
 
+    def _ris_angle_for(self, index: int) -> float:
+        return ris_index_to_angle(
+            int(index),
+            max_index=int(self.cfg.beams.max_ris_index),
+            angle_min=float(self.cfg.beams.ris_angle_min),
+            angle_max=float(self.cfg.beams.ris_angle_max),
+        )
+
     def _append_mac_sample(self, sample: MacKpiSample) -> None:
         max_n = int(self.cfg.plot.max_points)
         with self._lock:
+            ris_idx = (
+                int(self.snapshot.current_ris_beam)
+                if self.snapshot.current_ris_beam is not None
+                else -1
+            )
+            ris_ang = (
+                self._ris_angle_for(ris_idx)
+                if ris_idx >= 0
+                else float("nan")
+            )
             self.snapshot.current_rsrp = float(sample.rsrp)
             self.snapshot.current_sinr = float(sample.sinr)
             self.snapshot.ran_ue_id = int(sample.ran_ue)
+            self.snapshot.current_ris_angle = ris_ang
             self.snapshot.t_rel_series.append(float(sample.t_rel_s))
             self.snapshot.rsrp_series.append(float(sample.rsrp))
             self.snapshot.sinr_series.append(float(sample.sinr))
+            self.snapshot.ris_index_series.append(float(ris_idx) if ris_idx >= 0 else float("nan"))
+            self.snapshot.ris_angle_series.append(float(ris_ang))
             if len(self.snapshot.rsrp_series) > max_n:
                 self.snapshot.t_rel_series = self.snapshot.t_rel_series[-max_n:]
                 self.snapshot.rsrp_series = self.snapshot.rsrp_series[-max_n:]
                 self.snapshot.sinr_series = self.snapshot.sinr_series[-max_n:]
+                self.snapshot.ris_index_series = self.snapshot.ris_index_series[-max_n:]
+                self.snapshot.ris_angle_series = self.snapshot.ris_angle_series[-max_n:]
 
     # ---- lifecycle ----
     def start_background_workers(self) -> None:
@@ -417,6 +446,32 @@ class Controller:
             self.robot.pulse_reset()
         return "Reset"
 
+    def _bootstrap_default_ris(self) -> None:
+        """POST default beam at startup so RIS angle monitoring starts with RSRP."""
+        idx = int(self.cfg.beams.default_ris_index)
+        idx = max(0, min(idx, int(self.cfg.beams.max_ris_index)))
+        angle = self._ris_angle_for(idx)
+        # Seed locally first so MAC samples track immediately (even if POST is slow/fails)
+        self._set(
+            current_ris_beam=idx,
+            current_ris_angle=angle,
+            ris_status=f"startup apply RIS={idx}…",
+        )
+        try:
+            self.set_ris_beam(idx)
+            log.info("Startup RIS beam applied: index=%s angle=%.1f°", idx, angle)
+        except Exception as exc:
+            log.warning(
+                "Startup RIS apply failed (%s); tracking local default index=%s",
+                exc,
+                idx,
+            )
+            self._set(
+                current_ris_beam=idx,
+                current_ris_angle=angle,
+                ris_status=f"startup apply failed: {exc}",
+            )
+
     def set_ris_beam(self, index: int) -> int:
         index = int(index)
         try:
@@ -429,7 +484,22 @@ class Controller:
             else:
                 beam = index
                 status = "local only (ris/ris_rest disabled)"
-            self._set(current_ris_beam=beam, status=f"RIS={beam}", ris_status=status)
+            angle = self._ris_angle_for(beam)
+            self._set(
+                current_ris_beam=beam,
+                current_ris_angle=angle,
+                status=f"RIS={beam} ({angle:.1f}°)",
+                ris_status=status,
+            )
+            # Stamp a step on the live series at the latest time (if plotting)
+            with self._lock:
+                if self.snapshot.t_rel_series:
+                    t = self.snapshot.t_rel_series[-1]
+                    self.snapshot.t_rel_series.append(t)
+                    self.snapshot.rsrp_series.append(self.snapshot.current_rsrp)
+                    self.snapshot.sinr_series.append(self.snapshot.current_sinr)
+                    self.snapshot.ris_index_series.append(float(beam))
+                    self.snapshot.ris_angle_series.append(float(angle))
             return beam
         except Exception as exc:
             self._set(ris_status=str(exc), status=f"RIS apply failed: {exc}")
@@ -448,6 +518,7 @@ class Controller:
             self.snapshot.rsrp_series.clear()
             self.snapshot.sinr_series.clear()
             self.snapshot.t_rel_series.clear()
+            self.snapshot.ris_index_series.clear()
             self.snapshot.ris_angle_series.clear()
             self.snapshot.rx_angle_series.clear()
         self.monitor.reset()
@@ -508,12 +579,17 @@ class Controller:
                 xapp_status=status,
             )
             if self.cfg.features.record_mobility and self.logger:
+                with self._lock:
+                    ris_idx = self.snapshot.current_ris_beam
+                    ris_ang = self.snapshot.current_ris_angle
                 self.logger.log_kpm_row(
                     timestamp=start,
                     t_rel_s=sample.t_rel_s,
                     ran_ue_id=sample.ran_ue,
                     rsrp=sample.rsrp,
                     sinr=sample.sinr,
+                    ris_index=ris_idx,
+                    ris_angle=ris_ang if ris_ang == ris_ang else None,
                     update_latency=datetime.now().timestamp() - start,
                 )
             if self.mobility and sample.rsrp == sample.rsrp:  # not NaN

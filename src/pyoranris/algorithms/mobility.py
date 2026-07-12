@@ -58,6 +58,19 @@ def index_to_angles(
     return float(ris_angle), float(rx_angles[rx_index])
 
 
+def ris_index_to_angle(
+    ris_index: int,
+    *,
+    max_index: int = 21,
+    angle_min: float = 20.0,
+    angle_max: float = 60.0,
+) -> float:
+    """Map RIS beam index [0, max_index] → angle [angle_min, angle_max] degrees."""
+    max_index = max(1, int(max_index))
+    idx = int(np.clip(ris_index, 0, max_index))
+    return float(angle_min + idx * (angle_max - angle_min) / max_index)
+
+
 class RSRPMonitor:
     """Windowed RSRP drop detector (legacy monitor_rsrp_hybrid_v1)."""
 

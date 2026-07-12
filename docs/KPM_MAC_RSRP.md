@@ -32,10 +32,26 @@ In the GUI:
 
 1. Optional: **Start xapp-kpm** (calls your `oai-flexric.sh`)
 2. **Connect & Plot** (auto-connects if `auto_connect_mac_rsrp: true`)
-3. Blue = MacAvgRSRP, red = MacAvgSINRdB
+3. Left plot: blue = MacAvgRSRP, red = MacAvgSINRdB
+4. Right plot: orange = RIS beam angle (20–60°)
+5. **RIS Control → Apply** sets the beam via REST and updates the live angle series
+   (on startup, `default_ris_index` is POSTed in the background so the angle plot
+   tracks from the first RSRP sample)
 
-CSV is written under `data/UE_Mobility/.../data_log.csv` with columns:
-`timestamp, t_rel_s, ran_ue_id, RSRP, SINR, update_latency`.
+CSV is written under `data/run_<UTC_stamp>.csv` with columns:
+`timestamp, t_rel_s, ran_ue_id, RSRP, SINR, RIS_index, RIS_Angle, update_latency`.
+One CSV per run under `data/` — no subfolders.
+
+## RIS beam index ↔ angle
+
+Compact panel mapping (configurable under `beams:`):
+
+| Index | Angle |
+|-------|-------|
+| 0 | 20° |
+| 21 | 60° |
+
+Linear: `angle = 20 + index * (60-20)/21`.
 
 ## Do not mix with legacy MILCOM binary server
 
@@ -50,4 +66,6 @@ Same idea as the matplotlib script — set in YAML under `plot:`:
 plot:
   rsrp_ylim: [-140.0, -40.0]
   sinr_ylim: [-20.0, 50.0]
+  ris_index_ylim: [0.0, 21.0]
+  ris_angle_ylim: [20.0, 60.0]
 ```

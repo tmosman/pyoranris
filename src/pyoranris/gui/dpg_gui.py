@@ -23,6 +23,24 @@ class DearPyGuiApp:
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 6)
         return theme
 
+    @staticmethod
+    def _ffill(values) -> list[float]:
+        """Forward-fill NaNs so DearPyGui gets a continuous step-hold series."""
+        out: list[float] = []
+        last: float | None = None
+        for v in values:
+            fv = float(v)
+            if fv == fv:
+                last = fv
+            out.append(last if last is not None else float("nan"))
+        # Drop leading NaNs for DPG; if all NaN, return empty
+        if not out or all(x != x for x in out):
+            return []
+        if out[0] != out[0]:
+            first = next(x for x in out if x == x)
+            out = [first if x != x else x for x in out]
+        return out
+
     def run(self) -> None:
         try:
             import dearpygui.dearpygui as dpg
@@ -44,20 +62,63 @@ class DearPyGuiApp:
 
         with dpg.theme() as red_line_theme:
             with dpg.theme_component(dpg.mvLineSeries):
-                dpg.add_theme_color(dpg.mvPlotCol_Line, (220, 60, 60, 255))
-                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 2.0)
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_Line, (220, 60, 60, 255), category=dpg.mvThemeCat_Plots
+                )
+                dpg.add_theme_style(
+                    dpg.mvPlotStyleVar_LineWeight, 2.0, category=dpg.mvThemeCat_Plots
+                )
 
         with dpg.theme() as blue_line_theme:
             with dpg.theme_component(dpg.mvLineSeries):
-                dpg.add_theme_color(dpg.mvPlotCol_Line, (50, 110, 255, 255))
-                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 2.0)
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_Line, (50, 110, 255, 255), category=dpg.mvThemeCat_Plots
+                )
+                dpg.add_theme_style(
+                    dpg.mvPlotStyleVar_LineWeight, 2.0, category=dpg.mvThemeCat_Plots
+                )
+
+        with dpg.theme() as orange_line_theme:
+            with dpg.theme_component(dpg.mvLineSeries):
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_Line, (230, 140, 40, 255), category=dpg.mvThemeCat_Plots
+                )
+                dpg.add_theme_style(
+                    dpg.mvPlotStyleVar_LineWeight, 2.0, category=dpg.mvThemeCat_Plots
+                )
+
+        # Matplotlib-like dual-axis label colors
+        with dpg.theme() as blue_axis_theme:
+            with dpg.theme_component(dpg.mvPlotAxis):
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_AxisText, (50, 110, 255, 255), category=dpg.mvThemeCat_Plots
+                )
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_AxisTick, (50, 110, 255, 255), category=dpg.mvThemeCat_Plots
+                )
+        with dpg.theme() as red_axis_theme:
+            with dpg.theme_component(dpg.mvPlotAxis):
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_AxisText, (220, 60, 60, 255), category=dpg.mvThemeCat_Plots
+                )
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_AxisTick, (220, 60, 60, 255), category=dpg.mvThemeCat_Plots
+                )
 
         btn_theme = self._theme_button(dpg)
 
         if kpm:
-            self._build_kpm_layout(dpg, btn_theme, blue_line_theme, red_line_theme)
+            self._build_kpm_layout(
+                dpg,
+                btn_theme,
+                blue_line_theme,
+                red_line_theme,
+                orange_line_theme,
+                blue_axis_theme,
+                red_axis_theme,
+            )
             title = f"KPM MAC RSRP/SINR [{cfg.profile}]"
-            viewport = (1300, 850)
+            viewport = (1860, 1010)
         else:
             self._build_demo_layout(dpg, btn_theme, blue_line_theme, red_line_theme)
             title = f"Evaluation Console [RIS-ORAN] [{cfg.profile}]"
@@ -82,18 +143,26 @@ class DearPyGuiApp:
     # ------------------------------------------------------------------
     # KPM-only clean layout (matplotlib replacement)
     # ------------------------------------------------------------------
-    def _build_kpm_layout(self, dpg, btn_theme, blue_theme, red_theme) -> None:
+    def _build_kpm_layout(
+        self, dpg, btn_theme, blue_theme, red_theme, orange_theme, blue_axis_theme, red_axis_theme
+    ) -> None:
         cfg = self.controller.cfg
         rsrp_lo, rsrp_hi = cfg.plot.rsrp_ylim
         sinr_lo, sinr_hi = cfg.plot.sinr_ylim
+        ang_lo, ang_hi = cfg.plot.ris_angle_ylim
 
-        # Primary plot — full width
+        # Matched window + plot geometry for RSRP and RIS panels
+        win_w, win_h = 910, 760
+        plot_w, plot_h = 890, 660
+        gap = 10
+
+        # Primary KPI plot
         with dpg.window(
             label="MacAvgRSRP / MacAvgSINRdB",
             tag="kpm_main_window",
-            width=1260,
-            height=620,
-            pos=(10, 10),
+            width=win_w,
+            height=win_h,
+            pos=(gap, gap),
             no_close=True,
         ):
             with dpg.group(horizontal=True):
@@ -111,37 +180,87 @@ class DearPyGuiApp:
                 dpg.add_text("    ")
                 dpg.add_text("waiting for xApp…", tag="monitor_display", color=(255, 170, 60))
 
-            with dpg.plot(label="##kpm_plot", height=520, width=1240, tag="main_kpi_plot"):
+            with dpg.plot(label="##kpm_plot", height=plot_h, width=plot_w, tag="main_kpi_plot"):
                 dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthWest)
                 self._x_axis = dpg.add_plot_axis(
                     dpg.mvXAxis, label="Time from first sample (s)", tag="x_axis_rsrp"
                 )
-                # Left = RSRP (blue), Right = SINR (red)
+                # Left Y = RSRP (like matplotlib primary)
                 self._y_rsrp = dpg.add_plot_axis(
-                    dpg.mvYAxis, label="RSRP (dBm)", tag="y_axis_rsrp"
+                    dpg.mvYAxis,
+                    label="RSRP (dBm)",
+                    tag="y_axis_rsrp",
+                    no_side_switch=True,
                 )
+                dpg.bind_item_theme(self._y_rsrp, blue_axis_theme)
                 dpg.set_axis_limits(self._y_rsrp, float(rsrp_lo), float(rsrp_hi))
                 dpg.add_line_series(
                     [], [], label="MacAvgRSRP", parent=self._y_rsrp, tag="rsrp_series"
                 )
                 dpg.bind_item_theme("rsrp_series", blue_theme)
 
+                # Right Y = SINR (matplotlib twinax); opposite=True places it on the right
                 self._y_sinr = dpg.add_plot_axis(
-                    dpg.mvYAxis2, label="SINR (dB)", tag="y_axis_sinr"
+                    dpg.mvYAxis2,
+                    label="SINR (dB)",
+                    tag="y_axis_sinr",
+                    opposite=True,
+                    no_side_switch=True,
                 )
+                dpg.bind_item_theme(self._y_sinr, red_axis_theme)
                 dpg.set_axis_limits(self._y_sinr, float(sinr_lo), float(sinr_hi))
                 dpg.add_line_series(
                     [], [], label="MacAvgSINRdB", parent=self._y_sinr, tag="sinr_series"
                 )
                 dpg.bind_item_theme("sinr_series", red_theme)
 
+        # RIS beam angle — same window and plot size as RSRP panel
+        with dpg.window(
+            label="RIS Beam Angle",
+            tag="kpm_ris_plot_window",
+            width=win_w,
+            height=win_h,
+            pos=(gap + win_w + gap, gap),
+            no_close=True,
+        ):
+            with dpg.group(horizontal=True):
+                dpg.add_text(
+                    f"Index 0–{int(cfg.beams.max_ris_index)}  →  "
+                    f"{float(cfg.beams.ris_angle_min):.0f}–{float(cfg.beams.ris_angle_max):.0f}°",
+                    color=(160, 160, 160),
+                )
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Index:")
+                dpg.add_text("—", tag="ris_index_display", color=(40, 170, 90))
+                dpg.add_text("    Angle:")
+                dpg.add_text("—", tag="ris_angle_display", color=(230, 140, 40))
+
+            with dpg.plot(label="##ris_beam_plot", height=plot_h, width=plot_w, tag="ris_beam_plot"):
+                dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthWest)
+                self._x_axis_ris = dpg.add_plot_axis(
+                    dpg.mvXAxis, label="Time from first sample (s)", tag="x_axis_ris"
+                )
+                self._y_ris_ang = dpg.add_plot_axis(
+                    dpg.mvYAxis, label="RIS angle (°)", tag="y_axis_ris_ang"
+                )
+                dpg.set_axis_limits(self._y_ris_ang, float(ang_lo), float(ang_hi))
+                dpg.add_line_series(
+                    [], [], label="RIS angle", parent=self._y_ris_ang, tag="ris_angle_series"
+                )
+                dpg.bind_item_theme("ris_angle_series", orange_theme)
+
+        ctrl_y = gap + win_h + gap
+        total_w = 2 * win_w + 3 * gap
+        ctrl_w = (total_w - 4 * gap) // 3
+
         # Compact control bar
         with dpg.window(
             label="KPM xApp",
             tag="kpm_controls",
-            width=410,
+            width=ctrl_w,
             height=170,
-            pos=(10, 640),
+            pos=(gap, ctrl_y),
             no_close=True,
         ):
             with dpg.group(horizontal=True):
@@ -162,18 +281,18 @@ class DearPyGuiApp:
         with dpg.window(
             label="RIS Control",
             tag="kpm_ris",
-            width=420,
+            width=ctrl_w,
             height=170,
-            pos=(430, 640),
+            pos=(gap * 2 + ctrl_w, ctrl_y),
             no_close=True,
         ):
-            dpg.add_text(f"POST {cfg.network.ris_rest_url}", wrap=400)
+            dpg.add_text(f"POST {cfg.network.ris_rest_url}", wrap=ctrl_w - 20)
             dpg.add_spacer(height=4)
             with dpg.group(horizontal=True):
                 dpg.add_input_int(
                     label="Beam index",
                     tag="ris_input",
-                    default_value=1,
+                    default_value=int(cfg.beams.default_ris_index),
                     width=120,
                     min_value=0,
                     max_value=int(cfg.beams.max_ris_index),
@@ -182,21 +301,24 @@ class DearPyGuiApp:
                 dpg.bind_item_theme(b_apply, btn_theme)
             dpg.add_spacer(height=4)
             dpg.add_text("Current: —", tag="ris_display")
-            dpg.add_text("", tag="ris_result", wrap=400)
+            dpg.add_text("", tag="ris_result", wrap=ctrl_w - 20)
 
         with dpg.window(
             label="Session",
             tag="kpm_session",
-            width=410,
+            width=ctrl_w,
             height=170,
-            pos=(860, 640),
+            pos=(gap * 3 + 2 * ctrl_w, ctrl_y),
             no_close=True,
         ):
             dpg.add_text(f"Profile: {cfg.profile}")
             log_path = self.controller.snapshot.log_path or "(logging off)"
-            dpg.add_text(f"Log: {log_path}", wrap=380, tag="kpm_log_path")
+            dpg.add_text(f"Log: {log_path}", wrap=ctrl_w - 20, tag="kpm_log_path")
             dpg.add_spacer(height=6)
-            dpg.add_text("Blue = MacAvgRSRP (left) · Red = MacAvgSINRdB (right)", color=(160, 160, 160))
+            dpg.add_text(
+                "Blue/Red = RSRP/SINR · Orange = RIS angle",
+                color=(160, 160, 160),
+            )
 
     # ------------------------------------------------------------------
     # Full MILCOM demo layout (legacy path)
@@ -382,8 +504,16 @@ class DearPyGuiApp:
                         "xApp_status_text",
                         f"TCP client → {cfg.network.host}:{cfg.network.xapp_port}  ·  {conn}",
                     )
-                if snap.current_ris_beam is not None and dpg.does_item_exist("ris_display"):
-                    dpg.set_value("ris_display", f"Current: {snap.current_ris_beam}")
+                if snap.current_ris_beam is not None:
+                    ang = snap.current_ris_angle
+                    ang_s = f"{ang:.1f}°" if ang == ang else "—"
+                    live = f"{snap.current_ris_beam} ({ang_s})"
+                    if dpg.does_item_exist("ris_display"):
+                        dpg.set_value("ris_display", f"Current: {live}")
+                    if dpg.does_item_exist("ris_index_display"):
+                        dpg.set_value("ris_index_display", str(snap.current_ris_beam))
+                    if dpg.does_item_exist("ris_angle_display"):
+                        dpg.set_value("ris_angle_display", ang_s)
                 if snap.ris_status and dpg.does_item_exist("ris_result"):
                     # don't clobber a fresh Failed: message every frame unless empty
                     cur = dpg.get_value("ris_result")
@@ -414,12 +544,18 @@ class DearPyGuiApp:
                     xs = [float(v) for v in snap.t_rel_series]
                     ys_r = [float(v) if v == v else 0.0 for v in snap.rsrp_series]
                     ys_s = [float(v) if v == v else 0.0 for v in snap.sinr_series]
+                    ys_a = self._ffill(snap.ris_angle_series)
                     # DearPyGui expects two sequences; keep lengths matched
                     m = min(len(xs), len(ys_r), len(ys_s))
+                    if ys_a:
+                        m = min(m, len(ys_a))
                     xs, ys_r, ys_s = xs[-m:], ys_r[-m:], ys_s[-m:]
+                    ys_a = ys_a[-m:] if ys_a else []
                     dpg.set_value("rsrp_series", [xs, ys_r])
                     if dpg.does_item_exist("sinr_series"):
                         dpg.set_value("sinr_series", [xs, ys_s])
+                    if ys_a and dpg.does_item_exist("ris_angle_series"):
+                        dpg.set_value("ris_angle_series", [xs, ys_a])
 
                     x1 = xs[-1]
                     window_s = 30.0
@@ -427,6 +563,10 @@ class DearPyGuiApp:
                     if x1 <= x0:
                         x1 = x0 + 1.0
                     dpg.set_axis_limits(getattr(self, "_x_axis", "x_axis_rsrp"), x0, x1 + 0.05)
+                    if dpg.does_item_exist("x_axis_ris"):
+                        dpg.set_axis_limits(
+                            getattr(self, "_x_axis_ris", "x_axis_ris"), x0, x1 + 0.05
+                        )
 
                     rsrp_lo, rsrp_hi = cfg.plot.rsrp_ylim
                     sinr_lo, sinr_hi = cfg.plot.sinr_ylim
@@ -436,6 +576,13 @@ class DearPyGuiApp:
                     if dpg.does_item_exist("y_axis_sinr"):
                         dpg.set_axis_limits(
                             getattr(self, "_y_sinr", "y_axis_sinr"), float(sinr_lo), float(sinr_hi)
+                        )
+                    if dpg.does_item_exist("y_axis_ris_ang"):
+                        ang_lo, ang_hi = cfg.plot.ris_angle_ylim
+                        dpg.set_axis_limits(
+                            getattr(self, "_y_ris_ang", "y_axis_ris_ang"),
+                            float(ang_lo),
+                            float(ang_hi),
                         )
                 else:
                     xs = list(range(n))

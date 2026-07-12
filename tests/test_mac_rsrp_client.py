@@ -120,12 +120,18 @@ def test_kpm_config_loads():
     assert cfg.features.mac_rsrp_tcp is True
     assert cfg.features.xapp_server is False
     assert cfg.network.xapp_port == 8081
+    assert cfg.beams.max_ris_index == 21
+    assert cfg.beams.default_ris_index == 1
+    assert cfg.features.auto_apply_ris_on_start is True
+    assert cfg.plot.ris_index_ylim == [0.0, 21.0]
+    assert cfg.plot.ris_angle_ylim == [0.0, 60.0]
 
 
 def test_controller_kpm_mode_wires_client():
     cfg = load_config("configs/kpm_mac_rsrp.yaml")
     cfg.features.record_mobility = False
     cfg.features.auto_connect_mac_rsrp = False
+    cfg.features.auto_apply_ris_on_start = False
     ctrl = Controller(cfg)
     try:
         assert ctrl.mac_client is not None

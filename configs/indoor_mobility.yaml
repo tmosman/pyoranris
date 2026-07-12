@@ -15,4 +15,3 @@ features:
 
 logging:
   root_dir: "data"
-  mobility_subdir: "UE_Mobility"

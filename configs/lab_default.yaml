@@ -54,5 +54,4 @@ beams:
 
 logging:
   root_dir: "data"
-  mobility_subdir: "UE_Mobility"
   coverage_subdir: "Coverage_Datasets"

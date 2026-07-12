@@ -26,7 +26,7 @@ As checked into `legacy/INDOORS_MILCOM_DEMO_debugging_v2.py`:
 | `position_obj` | `False` | Marvelmind |
 | `zed_server` / `ZED2_*` | `False` | Camera path |
 | `robot_server` | `False` | Redis robot commands |
-| `ue_mobility_record` | `True` | Write `data_log.csv` |
+| `ue_mobility_record` | `True` | Write `run_<stamp>.csv` |
 
 ## Network endpoints (lab_default)
 
@@ -49,7 +49,7 @@ timestamp, update_latency, RSRP, RIS_index, RX_index, RIS_Angle, RX_Angle
 Output path pattern:
 
 ```text
-<data_root>/UE_Mobility/Experiment_at_<UTC_stamp>/data_log.csv
+<data_root>/run_<UTC_stamp>.csv
 ```
 
 ## How to run the legacy script (temporary)
