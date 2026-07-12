@@ -57,7 +57,7 @@ class DearPyGuiApp:
         if kpm:
             self._build_kpm_layout(dpg, btn_theme, blue_line_theme, red_line_theme)
             title = f"KPM MAC RSRP/SINR [{cfg.profile}]"
-            viewport = (1280, 820)
+            viewport = (1300, 850)
         else:
             self._build_demo_layout(dpg, btn_theme, blue_line_theme, red_line_theme)
             title = f"Evaluation Console [RIS-ORAN] [{cfg.profile}]"
@@ -139,8 +139,8 @@ class DearPyGuiApp:
         with dpg.window(
             label="KPM xApp",
             tag="kpm_controls",
-            width=620,
-            height=150,
+            width=410,
+            height=170,
             pos=(10, 640),
             no_close=True,
         ):
@@ -158,17 +158,43 @@ class DearPyGuiApp:
             )
             dpg.add_text("Wire: collect_us  ran_ue_id  rsrp_dBm  sinr_dB")
 
+        # RIS REST control
+        with dpg.window(
+            label="RIS Control",
+            tag="kpm_ris",
+            width=420,
+            height=170,
+            pos=(430, 640),
+            no_close=True,
+        ):
+            dpg.add_text(f"POST {cfg.network.ris_rest_url}", wrap=400)
+            dpg.add_spacer(height=4)
+            with dpg.group(horizontal=True):
+                dpg.add_input_int(
+                    label="Beam index",
+                    tag="ris_input",
+                    default_value=1,
+                    width=120,
+                    min_value=0,
+                    max_value=int(cfg.beams.max_ris_index),
+                )
+                b_apply = dpg.add_button(label="Apply", callback=lambda: self._apply_ris_rest())
+                dpg.bind_item_theme(b_apply, btn_theme)
+            dpg.add_spacer(height=4)
+            dpg.add_text("Current: —", tag="ris_display")
+            dpg.add_text("", tag="ris_result", wrap=400)
+
         with dpg.window(
             label="Session",
             tag="kpm_session",
-            width=620,
-            height=150,
-            pos=(640, 640),
+            width=410,
+            height=170,
+            pos=(860, 640),
             no_close=True,
         ):
             dpg.add_text(f"Profile: {cfg.profile}")
             log_path = self.controller.snapshot.log_path or "(logging off)"
-            dpg.add_text(f"Log: {log_path}", wrap=580, tag="kpm_log_path")
+            dpg.add_text(f"Log: {log_path}", wrap=380, tag="kpm_log_path")
             dpg.add_spacer(height=6)
             dpg.add_text("Blue = MacAvgRSRP (left) · Red = MacAvgSINRdB (right)", color=(160, 160, 160))
 
@@ -306,11 +332,23 @@ class DearPyGuiApp:
         dpg.set_value("robot_stop", 0)
         dpg.set_value("robot_result", self.controller.reset_robot())
 
-    def _set_ris(self) -> None:
+    def _apply_ris_rest(self) -> None:
         import dearpygui.dearpygui as dpg
 
-        beam = self.controller.set_ris_beam(dpg.get_value("ris_input"))
-        dpg.set_value("ris_result", f"Current Index: {beam}")
+        index = int(dpg.get_value("ris_input"))
+        try:
+            beam = self.controller.set_ris_beam(index)
+            snap = self.controller.get_snapshot()
+            if dpg.does_item_exist("ris_display"):
+                dpg.set_value("ris_display", f"Current: {beam}")
+            if dpg.does_item_exist("ris_result"):
+                dpg.set_value("ris_result", snap.ris_status or f"Applied index {beam}")
+        except Exception as exc:
+            if dpg.does_item_exist("ris_result"):
+                dpg.set_value("ris_result", f"Failed: {exc}")
+
+    def _set_ris(self) -> None:
+        self._apply_ris_rest()
 
     def _set_ue(self) -> None:
         import dearpygui.dearpygui as dpg
@@ -344,6 +382,13 @@ class DearPyGuiApp:
                         "xApp_status_text",
                         f"TCP client → {cfg.network.host}:{cfg.network.xapp_port}  ·  {conn}",
                     )
+                if snap.current_ris_beam is not None and dpg.does_item_exist("ris_display"):
+                    dpg.set_value("ris_display", f"Current: {snap.current_ris_beam}")
+                if snap.ris_status and dpg.does_item_exist("ris_result"):
+                    # don't clobber a fresh Failed: message every frame unless empty
+                    cur = dpg.get_value("ris_result")
+                    if not cur or cur.startswith("OK") or cur.startswith("HTTP") or "Applied" in str(cur) or cur.startswith("TCP") or cur.startswith("local"):
+                        dpg.set_value("ris_result", snap.ris_status)
             else:
                 if dpg.does_item_exist("server_status_text"):
                     dpg.set_value("server_status_text", snap.xapp_status)

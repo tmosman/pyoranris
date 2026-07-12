@@ -20,6 +20,7 @@ features:
   mac_rsrp_tcp: true
   auto_connect_mac_rsrp: true
   ris: false
+  ris_rest: true
   ue_evk: false
   marvelmind: false
   robot_redis: false
@@ -34,6 +35,7 @@ features:
 network:
   host: "127.0.0.1"
   xapp_port: 8081
+  ris_rest_url: "http://localhost:8080/api/beam/apply"
 
 plot:
   rsrp_ylim: [-90.0, -40.0]

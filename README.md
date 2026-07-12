@@ -93,6 +93,17 @@ pyoranris run -c configs/kpm_mac_rsrp.yaml
 
 Dual-axis DearPyGui plot (RSRP blue, SINR red). See [`docs/KPM_MAC_RSRP.md`](docs/KPM_MAC_RSRP.md).
 
+RIS beam apply (REST) from the **RIS Control** panel:
+
+```bash
+# API expected by the GUI
+curl -s -X POST http://localhost:8080/api/beam/apply \
+  -H 'Content-Type: application/json' \
+  -d '{"index":1}'
+```
+
+Override URL with `network.ris_rest_url` or `PYORANRIS_RIS_REST_URL`.
+
 ## Status
 
 - **Phase 0** — golden path + legacy freeze — done

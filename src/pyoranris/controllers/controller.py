@@ -18,6 +18,7 @@ from pyoranris.config import AppConfig
 from pyoranris.data.experiment_logger import ExperimentLogger
 from pyoranris.devices.marvelmind_device import PositionDevice
 from pyoranris.devices.ris import RISDevice
+from pyoranris.devices.ris_rest import RISRestClient
 from pyoranris.devices.robot import RobotDevice
 from pyoranris.devices.ue_evk import UEEvkDevice
 from pyoranris.models.constants import Constants
@@ -47,6 +48,7 @@ class RuntimeSnapshot:
     ran_ue_id: int = 0
     current_ris_beam: int | None = None
     current_rx_index: int | None = None
+    ris_status: str = ""
     t_rel_series: list[float] = field(default_factory=list)
     rsrp_series: list[float] = field(default_factory=list)
     sinr_series: list[float] = field(default_factory=list)
@@ -103,6 +105,10 @@ class Controller:
         self.gps: LabTCPClient | None = None
         self.camera: CameraTCPServer | None = None
         self.ris = RISDevice(cfg.network.ris_host, cfg.network.ris_port, enabled=cfg.features.ris)
+        self.ris_rest: RISRestClient | None = None
+        if cfg.features.ris_rest:
+            self.ris_rest = RISRestClient(cfg.network.ris_rest_url, enabled=True)
+            log.info("RIS REST control → %s", cfg.network.ris_rest_url)
         self.ue: UEEvkDevice | None = None
         self.robot: RobotDevice | None = None
         self.position: PositionDevice | None = None
@@ -196,6 +202,7 @@ class Controller:
                 ran_ue_id=s.ran_ue_id,
                 current_ris_beam=s.current_ris_beam,
                 current_rx_index=s.current_rx_index,
+                ris_status=s.ris_status,
                 t_rel_series=list(s.t_rel_series),
                 rsrp_series=list(s.rsrp_series),
                 sinr_series=list(s.sinr_series),
@@ -411,9 +418,22 @@ class Controller:
         return "Reset"
 
     def set_ris_beam(self, index: int) -> int:
-        beam = self.ris.set_beam(int(index), cmd="SET")
-        self._set(current_ris_beam=beam, status=f"RIS={beam}")
-        return beam
+        index = int(index)
+        try:
+            if self.ris_rest is not None:
+                beam = self.ris_rest.set_beam(index)
+                status = self.ris_rest.last_status
+            elif self.cfg.features.ris:
+                beam = self.ris.set_beam(index, cmd="SET")
+                status = f"TCP SET → {beam}"
+            else:
+                beam = index
+                status = "local only (ris/ris_rest disabled)"
+            self._set(current_ris_beam=beam, status=f"RIS={beam}", ris_status=status)
+            return beam
+        except Exception as exc:
+            self._set(ris_status=str(exc), status=f"RIS apply failed: {exc}")
+            raise
 
     def set_ue_beam(self, index: int) -> int:
         if self.ue is None:

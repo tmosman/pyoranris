@@ -30,7 +30,8 @@ class FeaturesConfig:
     xapp_client: bool = False
     # KPM xapp_kpm_moni text TCP (--mac-rsrp-tcp). GUI is client; xApp is server.
     mac_rsrp_tcp: bool = False
-    ris: bool = False
+    ris: bool = False  # legacy TCP RIS ACK client
+    ris_rest: bool = False  # POST JSON to REST beam apply API
     ue_evk: bool = False
     initialize_ue_beams: bool = False
     marvelmind: bool = False
@@ -70,6 +71,8 @@ class NetworkConfig:
     rsrp_port: int = 10000
     ris_host: str = "192.168.10.123"
     ris_port: int = 9999
+    # REST RIS controller (POST {"index": N})
+    ris_rest_url: str = "http://localhost:8080/api/beam/apply"
     ue_evk_host: str = "192.168.10.102"
     ue_evk_port: int = 9999
     ue_laptop_host: str = "192.168.10.114"
@@ -148,6 +151,7 @@ def _apply_env(cfg: AppConfig) -> AppConfig:
         "PYORANRIS_RSRP_PORT": ("network", "rsrp_port", int),
         "PYORANRIS_RIS_HOST": ("network", "ris_host", str),
         "PYORANRIS_RIS_PORT": ("network", "ris_port", int),
+        "PYORANRIS_RIS_REST_URL": ("network", "ris_rest_url", str),
         "PYORANRIS_UE_EVK_HOST": ("network", "ue_evk_host", str),
         "PYORANRIS_DATA_ROOT": ("logging", "root_dir", str),
         "PYORANRIS_MARVELMIND_TTY": ("devices", "marvelmind_tty", str),
