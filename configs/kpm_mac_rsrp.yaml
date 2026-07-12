@@ -1,0 +1,53 @@
+# KPM MAC RSRP / SINR — replaces matplotlib mac_rsrp_tcp_plot.py
+#
+# Architecture (important):
+#   xapp_kpm_moni --mac-rsrp-tcp 127.0.0.1:8081   ← TCP *server*
+#   pyoranris (this profile)                     ← TCP *client* + DearPyGui
+#
+# Flow:
+#   1) Start RIC + gNB + UE as usual
+#   2) Start KPM xApp (GUI button or):
+#        KPM_REPORT_PERIOD_MS=100 XAPP_DURATION=-1 \
+#          ~/Program_scripts/flexric_scripts/oai-flexric.sh start xapp-kpm
+#   3) pyoranris run -c configs/kpm_mac_rsrp.yaml
+#   4) Click "Plot RSRP" (auto-connects to 127.0.0.1:8081)
+
+profile: kpm_mac_rsrp
+
+features:
+  xapp_server: false
+  xapp_client: false
+  mac_rsrp_tcp: true
+  auto_connect_mac_rsrp: true
+  ris: false
+  ue_evk: false
+  marvelmind: false
+  robot_redis: false
+  gps: false
+  quectel: false
+  record_mobility: true
+  data_collection: false
+  simulate_rsrp: false
+  mobility_reopt: false
+  auto_start_xapp: false
+
+network:
+  host: "127.0.0.1"
+  xapp_port: 8081
+
+plot:
+  rsrp_ylim: [-90.0, -40.0]
+  sinr_ylim: [-20.0, 50.0]
+  max_points: 600
+
+lab_ops:
+  flexric_script: "~/Program_scripts/flexric_scripts/oai-flexric.sh"
+  kpm_report_period_ms: 100
+  xapp_duration: -1
+
+logging:
+  root_dir: "data"
+  mobility_subdir: "UE_Mobility"
+
+devices:
+  font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"

@@ -23,7 +23,9 @@ from pyoranris.devices.ue_evk import UEEvkDevice
 from pyoranris.models.constants import Constants
 from pyoranris.net.camera_server import CameraTCPServer
 from pyoranris.net.lab_tcp import LabTCPClient
+from pyoranris.net.mac_rsrp_client import MacKpiSample, MacRsrpTcpClient
 from pyoranris.net.xapp_server import XAppServer
+from pyoranris.lab.flexric_ops import FlexricKpmLauncher
 
 log = logging.getLogger(__name__)
 
@@ -39,10 +41,15 @@ class RuntimeSnapshot:
     oai_status: str = ""
     mobility_active: bool = False
     plotting: bool = False
+    mac_connected: bool = False
     current_rsrp: float = float("nan")
+    current_sinr: float = float("nan")
+    ran_ue_id: int = 0
     current_ris_beam: int | None = None
     current_rx_index: int | None = None
+    t_rel_series: list[float] = field(default_factory=list)
     rsrp_series: list[float] = field(default_factory=list)
+    sinr_series: list[float] = field(default_factory=list)
     ris_angle_series: list[float] = field(default_factory=list)
     rx_angle_series: list[float] = field(default_factory=list)
     log_path: str = ""
@@ -78,15 +85,19 @@ class Controller:
 
         self.logger: ExperimentLogger | None = None
         if cfg.features.record_mobility:
+            schema = "kpm" if cfg.features.mac_rsrp_tcp else "demo"
             self.logger = ExperimentLogger(
                 root_dir=cfg.logging.root_dir,
                 mobility_subdir=cfg.logging.mobility_subdir,
+                schema=schema,
             )
             self.snapshot.log_path = str(self.logger.csv_path)
             log.info("Logging to %s", self.logger.csv_path)
 
         # Devices / servers (lazy-safe)
         self.xapp: XAppServer | None = None
+        self.mac_client: MacRsrpTcpClient | None = None
+        self.flexric: FlexricKpmLauncher | None = None
         self.xapp_monitor: LabTCPClient | None = None
         self.oai_ue: LabTCPClient | None = None
         self.gps: LabTCPClient | None = None
@@ -96,7 +107,17 @@ class Controller:
         self.robot: RobotDevice | None = None
         self.position: PositionDevice | None = None
 
-        if cfg.features.xapp_server:
+        if cfg.features.mac_rsrp_tcp:
+            self.mac_client = MacRsrpTcpClient(cfg.network.host, cfg.network.xapp_port)
+            self.flexric = FlexricKpmLauncher(
+                script=cfg.lab_ops.flexric_script,
+                report_period_ms=cfg.lab_ops.kpm_report_period_ms,
+                duration=cfg.lab_ops.xapp_duration,
+            )
+            self._set(xapp_status=f"KPM client → {cfg.network.host}:{cfg.network.xapp_port}")
+
+        # Legacy MILCOM binary server (do NOT enable with mac_rsrp_tcp — both want :8081)
+        if cfg.features.xapp_server and not cfg.features.mac_rsrp_tcp:
             self.xapp = XAppServer(cfg.network.host, cfg.network.xapp_port)
             if cfg.features.auto_start_xapp:
                 self.xapp.start_server()
@@ -160,6 +181,7 @@ class Controller:
     def get_snapshot(self) -> RuntimeSnapshot:
         with self._lock:
             s = self.snapshot
+            mac_ok = bool(self.mac_client and self.mac_client.connected)
             return RuntimeSnapshot(
                 status=s.status,
                 monitor_msg=s.monitor_msg,
@@ -168,10 +190,15 @@ class Controller:
                 oai_status=s.oai_status,
                 mobility_active=s.mobility_active,
                 plotting=s.plotting,
+                mac_connected=mac_ok,
                 current_rsrp=s.current_rsrp,
+                current_sinr=s.current_sinr,
+                ran_ue_id=s.ran_ue_id,
                 current_ris_beam=s.current_ris_beam,
                 current_rx_index=s.current_rx_index,
+                t_rel_series=list(s.t_rel_series),
                 rsrp_series=list(s.rsrp_series),
+                sinr_series=list(s.sinr_series),
                 ris_angle_series=list(s.ris_angle_series),
                 rx_angle_series=list(s.rx_angle_series),
                 log_path=s.log_path,
@@ -197,17 +224,35 @@ class Controller:
                 self.snapshot.ris_angle_series = self.snapshot.ris_angle_series[-max_n:]
                 self.snapshot.rx_angle_series = self.snapshot.rx_angle_series[-max_n:]
 
+    def _append_mac_sample(self, sample: MacKpiSample) -> None:
+        max_n = int(self.cfg.plot.max_points)
+        with self._lock:
+            self.snapshot.current_rsrp = float(sample.rsrp)
+            self.snapshot.current_sinr = float(sample.sinr)
+            self.snapshot.ran_ue_id = int(sample.ran_ue)
+            self.snapshot.t_rel_series.append(float(sample.t_rel_s))
+            self.snapshot.rsrp_series.append(float(sample.rsrp))
+            self.snapshot.sinr_series.append(float(sample.sinr))
+            if len(self.snapshot.rsrp_series) > max_n:
+                self.snapshot.t_rel_series = self.snapshot.t_rel_series[-max_n:]
+                self.snapshot.rsrp_series = self.snapshot.rsrp_series[-max_n:]
+                self.snapshot.sinr_series = self.snapshot.sinr_series[-max_n:]
+
     # ---- lifecycle ----
     def start_background_workers(self) -> None:
         self._stop.clear()
-        if self.cfg.features.simulate_rsrp:
+        if self.cfg.features.simulate_rsrp and not self.cfg.features.mac_rsrp_tcp:
             self._sim_thread = threading.Thread(target=self._sim_kpi_loop, daemon=True)
             self._sim_thread.start()
             log.info("Offline KPI simulator running")
+        if self.cfg.features.mac_rsrp_tcp and self.cfg.features.auto_connect_mac_rsrp:
+            self.start_plotting()
 
     def stop_background_workers(self) -> None:
         self.stop_plotting()
         self._stop.set()
+        if self.mac_client:
+            self.mac_client.stop()
         if self.xapp:
             self.xapp.stop_server()
         if self.camera:
@@ -222,6 +267,8 @@ class Controller:
             self.logger.close()
 
     def _kpi_queue(self) -> queue.Queue | None:
+        if self.mac_client is not None:
+            return self.mac_client.data_queue
         if self.xapp is not None:
             return self.xapp.data_queue
         return None
@@ -240,7 +287,30 @@ class Controller:
             time.sleep(0.25)
 
     # ---- GUI-facing controls ----
+    def start_kpm_xapp(self) -> str:
+        if not self.flexric:
+            return "KPM launcher not configured (enable mac_rsrp_tcp)"
+        msg = self.flexric.start()
+        self._set(xapp_status=msg)
+        return msg
+
+    def stop_kpm_xapp(self) -> str:
+        if not self.flexric:
+            return "KPM launcher not configured (enable mac_rsrp_tcp)"
+        msg = self.flexric.stop()
+        self._set(xapp_status=msg)
+        return msg
+
+    def status_kpm_xapp(self) -> str:
+        if not self.flexric:
+            return "KPM launcher not configured (enable mac_rsrp_tcp)"
+        msg = self.flexric.status()
+        self._set(xapp_status=msg[:200])
+        return msg
+
     def start_xapp_server(self) -> str:
+        if self.cfg.features.mac_rsrp_tcp:
+            return self.start_kpm_xapp()
         if not self.xapp:
             return "xApp server not configured"
         self.xapp.start_server()
@@ -248,6 +318,8 @@ class Controller:
         return "xApp Started"
 
     def stop_xapp_server(self) -> str:
+        if self.cfg.features.mac_rsrp_tcp:
+            return self.stop_kpm_xapp()
         if not self.xapp:
             return "xApp server not configured"
         self.xapp.stop_server()
@@ -354,6 +426,8 @@ class Controller:
     def clear_series(self) -> None:
         with self._lock:
             self.snapshot.rsrp_series.clear()
+            self.snapshot.sinr_series.clear()
+            self.snapshot.t_rel_series.clear()
             self.snapshot.ris_angle_series.clear()
             self.snapshot.rx_angle_series.clear()
         self.monitor.reset()
@@ -362,8 +436,23 @@ class Controller:
     def start_plotting(self) -> None:
         if self._plot_thread and self._plot_thread.is_alive():
             return
+        if self.cfg.features.mac_rsrp_tcp:
+            if self.mac_client is None:
+                self.mac_client = MacRsrpTcpClient(
+                    self.cfg.network.host, self.cfg.network.xapp_port
+                )
+            self.mac_client.start()
+            self._plot_stop.clear()
+            self._set(
+                plotting=True,
+                status=f"MAC RSRP ← {self.cfg.network.host}:{self.cfg.network.xapp_port}",
+            )
+            self._plot_thread = threading.Thread(target=self._mac_receive_loop, daemon=True)
+            self._plot_thread.start()
+            return
+
         if self._kpi_queue() is None and not self.cfg.features.simulate_rsrp:
-            self._set(status="No KPI source (enable xapp_server or simulate_rsrp)")
+            self._set(status="No KPI source (enable xapp_server, mac_rsrp_tcp, or simulate_rsrp)")
             return
         self._plot_stop.clear()
         self._set(plotting=True, status="Plotting RSRP")
@@ -373,9 +462,45 @@ class Controller:
     def stop_plotting(self) -> None:
         self._plot_stop.set()
         self._set(plotting=False, status="Plotting stopped")
+        if self.mac_client and self.cfg.features.mac_rsrp_tcp:
+            # keep process alive but stop reader when leaving plot mode? reconnect is fine —
+            # stop client so we don't fill queue forever
+            self.mac_client.stop()
         if self._plot_thread:
             self._plot_thread.join(timeout=2)
             self._plot_thread = None
+
+    def _mac_receive_loop(self) -> None:
+        assert self.mac_client is not None
+        q = self.mac_client.data_queue
+        while not self._plot_stop.is_set() and not self._stop.is_set():
+            try:
+                sample = q.get(timeout=0.5)
+            except Exception:
+                continue
+            if not isinstance(sample, MacKpiSample):
+                continue
+            start = datetime.now().timestamp()
+            self._append_mac_sample(sample)
+            status = "connected" if self.mac_client.connected else "waiting for xApp…"
+            self._set(
+                monitor_msg=f"ran_ue_id={sample.ran_ue}  [{status}]",
+                xapp_status=status,
+            )
+            if self.cfg.features.record_mobility and self.logger:
+                self.logger.log_kpm_row(
+                    timestamp=start,
+                    t_rel_s=sample.t_rel_s,
+                    ran_ue_id=sample.ran_ue,
+                    rsrp=sample.rsrp,
+                    sinr=sample.sinr,
+                    update_latency=datetime.now().timestamp() - start,
+                )
+            if self.mobility and sample.rsrp == sample.rsrp:  # not NaN
+                self.monitor.push(sample.rsrp)
+                dropped, _ = self.monitor.evaluate(threshold=1.0)
+                if dropped:
+                    self._set(monitor_msg=f"RSRP Dropped  ran_ue={sample.ran_ue}")
 
     # ---- main KPI loop (legacy receive_rsrp_data, no GUI) ----
     def _ensure_beam_state(self) -> None:
@@ -632,7 +757,13 @@ class Controller:
         if q is None:
             return -999.0
         try:
-            return float(q.get(timeout=timeout)[0])
+            item = q.get(timeout=timeout)
+        except Exception:
+            return -999.0
+        if isinstance(item, MacKpiSample):
+            return float(item.rsrp) if item.rsrp == item.rsrp else -999.0
+        try:
+            return float(item[0])
         except Exception:
             return -999.0
 

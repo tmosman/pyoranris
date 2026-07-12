@@ -80,8 +80,22 @@ pyoranris run -c configs/indoor_mobility.yaml
 
 Then in the GUI: **Start** (xApp server) → **Plot RSRP**. Optional: **Activate Test** for mobility monitoring.
 
+## KPM MAC RSRP / SINR (replaces matplotlib plot)
+
+```bash
+# Terminal A — after RIC/gNB/UE are up
+KPM_REPORT_PERIOD_MS=100 XAPP_DURATION=-1 \
+  ~/Program_scripts/flexric_scripts/oai-flexric.sh start xapp-kpm
+
+# Terminal B
+pyoranris run -c configs/kpm_mac_rsrp.yaml
+```
+
+Dual-axis DearPyGui plot (RSRP blue, SINR red). See [`docs/KPM_MAC_RSRP.md`](docs/KPM_MAC_RSRP.md).
+
 ## Status
 
 - **Phase 0** — golden path + legacy freeze — done
 - **Phase 1** — installable package + YAML configs + CLI — done
 - **Phase 2** — controller / devices / full GUI split — done
+- **KPM MAC TCP client** — replaces `mac_rsrp_tcp_plot.py` — done

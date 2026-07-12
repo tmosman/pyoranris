@@ -28,6 +28,8 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 class FeaturesConfig:
     xapp_server: bool = False
     xapp_client: bool = False
+    # KPM xapp_kpm_moni text TCP (--mac-rsrp-tcp). GUI is client; xApp is server.
+    mac_rsrp_tcp: bool = False
     ris: bool = False
     ue_evk: bool = False
     initialize_ue_beams: bool = False
@@ -42,6 +44,22 @@ class FeaturesConfig:
     simulate_rsrp: bool = False
     mobility_reopt: bool = False  # apply joint_bs on RSRP drop (off in frozen demo)
     auto_start_xapp: bool = False
+    # Start MacRsrpTcpClient when GUI starts (KPM profile)
+    auto_connect_mac_rsrp: bool = False
+
+
+@dataclass
+class PlotConfig:
+    rsrp_ylim: list[float] = field(default_factory=lambda: [-90.0, -40.0])
+    sinr_ylim: list[float] = field(default_factory=lambda: [-20.0, 50.0])
+    max_points: int = 600
+
+
+@dataclass
+class LabOpsConfig:
+    flexric_script: str = "~/Program_scripts/flexric_scripts/oai-flexric.sh"
+    kpm_report_period_ms: int = 100
+    xapp_duration: int = -1
 
 
 @dataclass
@@ -99,6 +117,8 @@ class AppConfig:
     devices: DevicesConfig = field(default_factory=DevicesConfig)
     beams: BeamsConfig = field(default_factory=BeamsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    plot: PlotConfig = field(default_factory=PlotConfig)
+    lab_ops: LabOpsConfig = field(default_factory=LabOpsConfig)
 
 
 def _from_mapping(cls, data: dict[str, Any] | None):
@@ -156,6 +176,8 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         devices=_from_mapping(DevicesConfig, raw.get("devices")),
         beams=_from_mapping(BeamsConfig, raw.get("beams")),
         logging=_from_mapping(LoggingConfig, raw.get("logging")),
+        plot=_from_mapping(PlotConfig, raw.get("plot")),
+        lab_ops=_from_mapping(LabOpsConfig, raw.get("lab_ops")),
     )
     return _apply_env(cfg)
 

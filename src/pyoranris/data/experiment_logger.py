@@ -20,6 +20,16 @@ CSV_HEADER = [
     "RX_Angle",
 ]
 
+# KPM MAC stream (extends demo schema with SINR / ran_ue)
+CSV_HEADER_KPM = [
+    "timestamp",
+    "t_rel_s",
+    "ran_ue_id",
+    "RSRP",
+    "SINR",
+    "update_latency",
+]
+
 
 def ensure_dirs(paths) -> None:
     for path in paths:
@@ -29,9 +39,16 @@ def ensure_dirs(paths) -> None:
 class ExperimentLogger:
     """Creates Demo/UE_Mobility/Experiment_at_*/data_log.csv style runs."""
 
-    def __init__(self, root_dir: str = "data", mobility_subdir: str = "UE_Mobility"):
+    def __init__(
+        self,
+        root_dir: str = "data",
+        mobility_subdir: str = "UE_Mobility",
+        *,
+        schema: str = "demo",
+    ):
         self.root = Path(root_dir)
         self.mobility_dir = self.root / mobility_subdir
+        self.schema = schema
         stamp = datetime.now(timezone.utc).strftime("%a_%b_%d_%H_%M_%S_%f_%Z_%Y")
         self.run_dir = self.mobility_dir / f"Experiment_at_{stamp}"
         self.raw_dir = self.run_dir / "Raw_data"
@@ -50,7 +67,8 @@ class ExperimentLogger:
         self.csv_path = self.run_dir / "data_log.csv"
         self._fh = open(self.csv_path, "w", newline="", encoding="utf-8")
         self._writer = csv.writer(self._fh)
-        self._writer.writerow(CSV_HEADER)
+        header = CSV_HEADER_KPM if schema == "kpm" else CSV_HEADER
+        self._writer.writerow(header)
         self._fh.flush()
 
     def log_row(
@@ -65,6 +83,20 @@ class ExperimentLogger:
     ) -> None:
         self._writer.writerow(
             [timestamp, update_latency, rsrp, ris_index, rx_index, ris_angle, rx_angle]
+        )
+        self._fh.flush()
+
+    def log_kpm_row(
+        self,
+        timestamp,
+        t_rel_s,
+        ran_ue_id,
+        rsrp,
+        sinr,
+        update_latency=0.0,
+    ) -> None:
+        self._writer.writerow(
+            [timestamp, t_rel_s, ran_ue_id, rsrp, sinr, update_latency]
         )
         self._fh.flush()
 

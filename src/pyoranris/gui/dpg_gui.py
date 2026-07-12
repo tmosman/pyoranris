@@ -32,7 +32,7 @@ class DearPyGuiApp:
             ) from exc
 
         cfg = self.controller.cfg
-        btn_theme = None
+        kpm = cfg.features.mac_rsrp_tcp
         dpg.create_context()
 
         font_path = cfg.devices.font_path
@@ -45,30 +45,53 @@ class DearPyGuiApp:
             with dpg.theme_component(dpg.mvLineSeries):
                 dpg.add_theme_color(dpg.mvPlotCol_Line, (255, 0, 0, 255))
 
-        btn_theme = self._theme_button(dpg)
+        with dpg.theme() as blue_line_theme:
+            with dpg.theme_component(dpg.mvLineSeries):
+                dpg.add_theme_color(dpg.mvPlotCol_Line, (30, 90, 255, 255))
 
-        # ---- RSRP ----
-        with dpg.window(label="RSRP Plot", width=960, height=760, pos=(10, 10)):
+        btn_theme = self._theme_button(dpg)
+        rsrp_lo, rsrp_hi = cfg.plot.rsrp_ylim
+        sinr_lo, sinr_hi = cfg.plot.sinr_ylim
+
+        # ---- RSRP (+ SINR for KPM) ----
+        plot_title = "MacAvgRSRP / MacAvgSINRdB" if kpm else "RSRP Real-time Plot"
+        with dpg.window(label="RSRP / SINR Plot" if kpm else "RSRP Plot", width=960, height=760, pos=(10, 10)):
             with dpg.group(horizontal=True):
-                b1 = dpg.add_button(label="Plot RSRP", callback=lambda: self.controller.start_plotting())
-                b2 = dpg.add_button(label="Stop RSRP Update", callback=lambda: self.controller.stop_plotting())
+                b1 = dpg.add_button(
+                    label="Plot RSRP" if not kpm else "Connect & Plot",
+                    callback=lambda: self.controller.start_plotting(),
+                )
+                b2 = dpg.add_button(
+                    label="Stop RSRP Update",
+                    callback=lambda: self.controller.stop_plotting(),
+                )
                 dpg.bind_item_theme(b1, btn_theme)
                 dpg.bind_item_theme(b2, btn_theme)
             with dpg.group(horizontal=True):
                 dpg.add_text("Current RSRP:")
-                dpg.add_text("", tag="rsrp_display", color=(255, 0, 0))
+                dpg.add_text("", tag="rsrp_display", color=(30, 90, 255))
+                if kpm:
+                    dpg.add_text("   SINR:")
+                    dpg.add_text("", tag="sinr_display", color=(255, 0, 0))
                 dpg.add_text("   Monitoring:")
                 dpg.add_text("", tag="monitor_display", color=(255, 140, 0))
-            with dpg.plot(label="RSRP Real-time Plot", height=640, width=940):
+            with dpg.plot(label=plot_title, height=640, width=940, tag="main_kpi_plot"):
                 dpg.add_plot_legend()
-                dpg.add_plot_axis(dpg.mvXAxis, label="Iteration", tag="x_axis_rsrp")
+                x_label = "Time from first sample (s)" if kpm else "Iteration"
+                dpg.add_plot_axis(dpg.mvXAxis, label=x_label, tag="x_axis_rsrp")
                 y = dpg.add_plot_axis(dpg.mvYAxis, label="RSRP (dBm)", tag="y_axis_rsrp")
-                dpg.set_axis_limits(y, -120.0, -60.0)
-                dpg.add_line_series([], [], label="RSRP", parent=y, tag="rsrp_series")
+                dpg.set_axis_limits(y, float(rsrp_lo), float(rsrp_hi))
+                dpg.add_line_series([], [], label="MacAvgRSRP" if kpm else "RSRP", parent=y, tag="rsrp_series")
+                dpg.bind_item_theme("rsrp_series", blue_line_theme)
+                if kpm:
+                    y2 = dpg.add_plot_axis(dpg.mvYAxis2, label="SINR (dB)", tag="y_axis_sinr")
+                    dpg.set_axis_limits(y2, float(sinr_lo), float(sinr_hi))
+                    dpg.add_line_series([], [], label="MacAvgSINRdB", parent=y2, tag="sinr_series")
+                    dpg.bind_item_theme("sinr_series", red_line_theme)
 
-        # ---- Beams ----
+        # ---- Beams (hidden role for pure KPM, still useful) ----
         with dpg.window(label="Beams Plot Window", width=860, height=760, pos=(985, 10)):
-            bclear = dpg.add_button(label="Clear Beam Plot", callback=lambda: self.controller.clear_series())
+            bclear = dpg.add_button(label="Clear Plots", callback=lambda: self.controller.clear_series())
             dpg.bind_item_theme(bclear, btn_theme)
             with dpg.group(horizontal=True):
                 dpg.add_text("Current RIS Beam:")
@@ -86,23 +109,32 @@ class DearPyGuiApp:
                 dpg.add_line_series([], [], label="RX Beam", parent=y_rx, tag="rx_series")
                 dpg.bind_item_theme("rx_series", red_line_theme)
 
-        # ---- xApp ----
-        with dpg.window(label="xApp Server", width=380, height=220, pos=(10, 785)):
+        # ---- xApp / KPM ----
+        with dpg.window(label="KPM xApp" if kpm else "xApp Server", width=380, height=220, pos=(10, 785)):
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Start", callback=lambda: self._xapp_start())
-                dpg.add_button(label="Stop", callback=lambda: self._xapp_stop())
+                if kpm:
+                    dpg.add_button(label="Start xapp-kpm", callback=lambda: self._xapp_start())
+                    dpg.add_button(label="Stop xapp-kpm", callback=lambda: self._xapp_stop())
+                    dpg.add_button(label="Status", callback=lambda: self.controller.status_kpm_xapp())
+                else:
+                    dpg.add_button(label="Start", callback=lambda: self._xapp_start())
+                    dpg.add_button(label="Stop", callback=lambda: self._xapp_stop())
                 dpg.add_text("(Status):", tag="server_status_text")
             dpg.add_text("Monitoring KPIs:", tag="xApp_status_text")
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Start ", callback=lambda: self.controller.start_xapp_monitor())
-                dpg.add_button(label="Stop ", callback=lambda: self.controller.stop_xapp_monitor())
-                dpg.add_button(label="EXIT", callback=lambda: self.controller.exit_xapp_monitor())
-            with dpg.group(horizontal=True):
-                dpg.add_text("Data Collection:")
-                dpg.add_button(
-                    label="Capture Sample",
-                    callback=lambda: self._run_bg(self.controller.joint_beamsweeping),
-                )
+            if kpm:
+                dpg.add_text(f"TCP client → {cfg.network.host}:{cfg.network.xapp_port}", wrap=360)
+                dpg.add_text("Wire: collect_us ran_ue rsrp sinr", wrap=360)
+            else:
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Start ", callback=lambda: self.controller.start_xapp_monitor())
+                    dpg.add_button(label="Stop ", callback=lambda: self.controller.stop_xapp_monitor())
+                    dpg.add_button(label="EXIT", callback=lambda: self.controller.exit_xapp_monitor())
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Data Collection:")
+                    dpg.add_button(
+                        label="Capture Sample",
+                        callback=lambda: self._run_bg(self.controller.joint_beamsweeping),
+                    )
 
         # ---- Beam sweeping / mobility ----
         with dpg.window(label="Beam Sweeping", width=380, height=220, pos=(400, 785)):
@@ -159,7 +191,8 @@ class DearPyGuiApp:
             dpg.bind_font(large_font)
 
         dpg.set_exit_callback(lambda: self.controller.stop_plotting())
-        dpg.create_viewport(title=f"Evaluation Console [RIS-ORAN] [{cfg.profile}]", width=1860, height=1020)
+        title = "KPM MAC RSRP/SINR" if kpm else "Evaluation Console [RIS-ORAN]"
+        dpg.create_viewport(title=f"{title} [{cfg.profile}]", width=1860, height=1020)
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_frame_callback(1, lambda: self._tick(dpg))
@@ -206,8 +239,17 @@ class DearPyGuiApp:
     def _tick(self, dpg) -> None:
         try:
             snap = self.controller.get_snapshot()
-            if snap.current_rsrp == snap.current_rsrp:  # not NaN
+            cfg = self.controller.cfg
+            kpm = cfg.features.mac_rsrp_tcp
+
+            if snap.current_rsrp == snap.current_rsrp:
                 dpg.set_value("rsrp_display", f"{snap.current_rsrp:.1f} dBm")
+            if kpm and dpg.does_item_exist("sinr_display"):
+                if snap.current_sinr == snap.current_sinr:
+                    dpg.set_value("sinr_display", f"{snap.current_sinr:.1f} dB")
+                else:
+                    dpg.set_value("sinr_display", "—")
+
             dpg.set_value("monitor_display", snap.monitor_msg)
             dpg.set_value("bs_status_text", f"Experiment Status: {snap.bs_status}")
             dpg.set_value(
@@ -215,7 +257,11 @@ class DearPyGuiApp:
                 f"Mobility Test Status: {'Active' if snap.mobility_active else 'Not Active'}",
             )
             dpg.set_value("server_status_text", f"(Status): {snap.xapp_status}")
-            dpg.set_value("xApp_status_text", f" Monitoring KPIs: {snap.xapp_status}")
+            conn = "connected" if snap.mac_connected else "waiting for xApp…"
+            dpg.set_value(
+                "xApp_status_text",
+                f" Monitoring KPIs: {conn if kpm else snap.xapp_status}",
+            )
             dpg.set_value("oai_status_text", f"Experiment Status: {snap.oai_status}")
 
             if snap.current_ris_beam is not None:
@@ -225,12 +271,24 @@ class DearPyGuiApp:
 
             n = len(snap.rsrp_series)
             if n:
-                xs = list(range(n))
-                dpg.set_value("rsrp_series", [xs, snap.rsrp_series])
-                dpg.set_axis_limits("x_axis_rsrp", max(0, n - 200), max(1, n))
-                dpg.set_value("ris_series", [xs, snap.ris_angle_series])
-                dpg.set_value("rx_series", [xs, snap.rx_angle_series])
-                dpg.set_axis_limits("x_axis_beam", max(0, n - 200), max(1, n))
+                if kpm and snap.t_rel_series:
+                    xs = list(snap.t_rel_series)
+                    dpg.set_value("rsrp_series", [xs, snap.rsrp_series])
+                    if dpg.does_item_exist("sinr_series"):
+                        dpg.set_value("sinr_series", [xs, snap.sinr_series])
+                    x0, x1 = min(xs), max(xs)
+                    span = max(x1 - x0, 1e-6)
+                    dpg.set_axis_limits("x_axis_rsrp", x0 - 0.02 * span, x1 + 0.02 * span)
+                else:
+                    xs = list(range(n))
+                    dpg.set_value("rsrp_series", [xs, snap.rsrp_series])
+                    dpg.set_axis_limits("x_axis_rsrp", max(0, n - 200), max(1, n))
+
+                if snap.ris_angle_series:
+                    xs_b = list(range(len(snap.ris_angle_series)))
+                    dpg.set_value("ris_series", [xs_b, snap.ris_angle_series])
+                    dpg.set_value("rx_series", [xs_b, snap.rx_angle_series])
+                    dpg.set_axis_limits("x_axis_beam", max(0, len(xs_b) - 200), max(1, len(xs_b)))
         finally:
             if dpg.is_dearpygui_running():
                 dpg.set_frame_callback(dpg.get_frame_count() + 10, lambda: self._tick(dpg))
