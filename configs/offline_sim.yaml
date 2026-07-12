@@ -1,0 +1,37 @@
+# Runs without lab hardware. Use this on a new PC to verify install + GUI.
+
+profile: offline_sim
+
+features:
+  xapp_server: false
+  xapp_client: false
+  ris: false
+  ue_evk: false
+  marvelmind: false
+  zed_server: false
+  zed_client: false
+  robot_redis: false
+  gps: false
+  quectel: false
+  record_mobility: true
+  data_collection: false
+  simulate_rsrp: true
+
+network:
+  host: "127.0.0.1"
+  xapp_port: 8081
+  rsrp_port: 10000
+
+beams:
+  max_ris_index: 182
+  beam_interval: 1
+  rx_angles: [-27, -21, -15, -9, -3, 0, 3, 9, 15, 21, 27]
+  window_len: 5
+  update_window: 200
+
+logging:
+  root_dir: "data"
+  mobility_subdir: "UE_Mobility"
+
+devices:
+  font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"

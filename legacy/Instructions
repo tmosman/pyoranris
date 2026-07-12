@@ -1,0 +1,16 @@
+Experimental Procedures
+
+EVK02004 Initialization
+--> Sudo Access
+ ~/auto_decrypt.sh 
+wait for few minutes
+
+--> Power up board
+conda activate oran_ris
+cd /home/tmosman/Documents/Febuary_2025_Experiment/EVK02004_scripts
+python -i ./api_drivers/evk.py
+
+select the SN, and enter. Repeat the initialization for the second board
+python evks_script_demo.py
+
+

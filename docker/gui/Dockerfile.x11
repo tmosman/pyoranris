@@ -1,0 +1,10 @@
+FROM python:3.10-slim
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /app
+# lightweight deps; if you need GPU acceleration, add drivers / packages
+RUN apt-get update && apt-get install -y libgl1     && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt /app/ || true
+RUN pip install --no-cache-dir numpy dearpygui || true
+COPY src/ /app/src/
+ENV PYTHONPATH=/app/src
+CMD ["python","-c","from pyoranris.app import main; main()"]

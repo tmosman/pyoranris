@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  pyapp-novnc:
+    build:
+      context: ../..
+      dockerfile: docker/gui/Dockerfile.novnc
+    ports:
+      - '6080:6080'  # noVNC web UI
+      - '5900:5900'  # VNC (optional)
+    volumes:
+      - ../src:/app/src:ro
+    network_mode: bridge

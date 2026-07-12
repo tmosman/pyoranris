@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  pyapp:
+    build:
+      context: ../..
+      dockerfile: docker/gui/Dockerfile.x11
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../src:/app/src:ro
+    devices:
+      - /dev/dri:/dev/dri  # optional: GPU acceleration
+    network_mode: "bridge"

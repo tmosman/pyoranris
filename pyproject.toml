@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyoranris"
+version = "0.1.0"
+description = "Transferable O-RAN + RIS indoor demo control, logging, and GUI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Tawfik Osman" }]
+dependencies = [
+  "numpy>=1.24",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+gui = ["dearpygui>=1.11"]
+positioning = ["pyserial>=3.5"]
+vision = ["ultralytics", "opencv-python", "torch"]
+dev = ["pytest>=7.4", "ruff>=0.5"]
+
+[project.scripts]
+pyoranris = "pyoranris.cli:main"
+
+[project.urls]
+Repository = "https://github.com/tmosman/pyoranris"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pyoranris = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

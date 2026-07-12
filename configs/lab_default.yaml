@@ -1,0 +1,56 @@
+# Shared lab defaults extracted from MILCOM_demo (Jul 2026 freeze).
+# Copy and edit per machine — do not hardcode IPs in Python.
+
+profile: lab_default
+
+features:
+  xapp_server: true
+  xapp_client: true
+  ris: false
+  ue_evk: false
+  initialize_ue_beams: false
+  marvelmind: false
+  zed_server: false
+  zed_client: false
+  robot_redis: false
+  gps: false
+  quectel: false
+  record_mobility: true
+  data_collection: false
+
+network:
+  host: "127.0.0.1"
+  xapp_port: 8081
+  xapp_monitor_port: 5005
+  rsrp_port: 10000
+  ris_host: "192.168.10.123"
+  ris_port: 9999
+  ue_evk_host: "192.168.10.102"
+  ue_evk_port: 9999
+  ue_laptop_host: "192.168.10.114"
+  ue_oai_port: 5001
+  gps_port: 9991
+  camera_host: "192.168.1.128"
+  camera_port: 9908
+  jetson_host: "192.168.1.116"
+  jetson_port: 9999
+  redis_port: 6379
+  rpyc_rx_port: 18814
+  rpyc_tx_port: 18815
+
+devices:
+  marvelmind_tty: "/dev/ttyACM0"
+  marvelmind_baud: 115200
+  font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+beams:
+  max_ris_index: 182
+  beam_interval: 1
+  rx_angles: [-27, -21, -15, -9, -3, 0, 3, 9, 15, 21, 27]
+  window_len: 5
+  update_window: 1001
+
+logging:
+  root_dir: "data"
+  mobility_subdir: "UE_Mobility"
+  coverage_subdir: "Coverage_Datasets"

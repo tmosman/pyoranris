@@ -1,0 +1,20 @@
+version: '3.8'
+services:
+  cserver:
+    image: alpine
+    command: tail -f /dev/null
+    networks:
+      - pyoranris_net
+  pyapp:
+    build: ..
+    environment:
+      - XAPP_HOST=cserver
+      - XAPP_PORT=9999
+      - RSRP_PORT=10000
+    networks:
+      - pyoranris_net
+    volumes:
+      - ../src:/app/src
+networks:
+  pyoranris_net:
+    driver: bridge
