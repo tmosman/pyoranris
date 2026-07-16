@@ -27,6 +27,7 @@ lab = ["pyoranris[gui,positioning,ue,robot,mobility]"]
 
 [project.scripts]
 pyoranris = "pyoranris.cli:main"
+pyoranris-xapp-monitor = "pyoranris.lab.xapp_monitor_server:main"
 
 [project.urls]
 Repository = "https://github.com/tmosman/pyoranris"

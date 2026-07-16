@@ -28,9 +28,9 @@ class XAppServer:
         if self.running:
             log.info("xApp server already running")
             return
+        self.running = True
         self.server_thread = threading.Thread(target=self.run_server, daemon=True)
         self.server_thread.start()
-        self.running = True
         log.info("xApp server thread started at %s:%s", self.ip, self.port)
 
     def run_server(self) -> None:
@@ -43,6 +43,7 @@ class XAppServer:
             self.accept_clients()
         except Exception:
             log.exception("xApp server start error")
+            self.running = False
         finally:
             if self.server_socket:
                 self.server_socket.close()
@@ -66,32 +67,64 @@ class XAppServer:
                 log.exception("Error accepting xApp clients")
         finally:
             for client in self.clients:
-                client.close()
+                try:
+                    client.close()
+                except OSError:
+                    pass
             self.clients = []
+
+    def _enqueue_kpi(self, kpis: list) -> None:
+        payload = list(kpis)
+        try:
+            self.data_queue.put_nowait(payload)
+        except queue.Full:
+            try:
+                self.data_queue.get_nowait()
+            except queue.Empty:
+                pass
+            self.data_queue.put_nowait(payload)
+        self.KPIs = payload
 
     def handle_client(self, client_socket: socket.socket) -> None:
         try:
             while self.running:
                 data = client_socket.recv(80)
-                if data:
-                    unpacked = struct.unpack("iiii", data[:16])
-                    rsrp = unpacked[1]
-                    dl_thr = unpacked[3] / 1000
-                    ul_thr = unpacked[2] / 1000
-                    self.KPIs = [rsrp, dl_thr, ul_thr]
-                else:
-                    self.KPIs = [0, 0, 0]
-                self.data_queue.put(self.KPIs)
-                if self.data_queue.full():
-                    self.data_queue.queue.clear()
+                if not data:
+                    log.info("xApp peer closed connection")
+                    break
+                unpacked = struct.unpack("iiii", data[:16])
+                rsrp = unpacked[1]
+                dl_thr = unpacked[3] / 1000
+                ul_thr = unpacked[2] / 1000
+                self._enqueue_kpi([rsrp, dl_thr, ul_thr])
+        except OSError:
+            if self.running:
+                log.debug("xApp client socket closed", exc_info=True)
         except Exception:
             log.exception("Error handling xApp client")
         finally:
-            client_socket.close()
+            try:
+                client_socket.close()
+            except OSError:
+                pass
+            self.clients = [c for c in self.clients if c is not client_socket]
             log.info("xApp client disconnected")
+
+    def drain_queue(self) -> None:
+        while True:
+            try:
+                self.data_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def stop_server(self) -> None:
         self.running = False
+        for client in list(self.clients):
+            try:
+                client.close()
+            except OSError:
+                pass
+        self.clients = []
         if self.server_socket:
             self.server_socket.close()
             self.server_socket = None

@@ -11,8 +11,8 @@
 #          ~/Program_scripts/flexric_scripts/oai-flexric.sh start xapp-srs
 #   3) pyoranris run -c configs/srs_cir.yaml
 #
-# Do not run together with configs/kpm_mac_rsrp.yaml in the same GUI
-# (one xApp / plot profile at a time). KPM uses :8081, SRS uses :8082.
+# Do not run together with configs/kpm_mac_rsrp.yaml unless you use
+# configs/kpm_srs.yaml (combined). KPM uses :8081, SRS uses :8082.
 
 profile: srs_cir
 

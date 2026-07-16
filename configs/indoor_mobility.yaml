@@ -12,6 +12,16 @@ features:
   record_mobility: true
   mobility_reopt: false
   auto_start_xapp: false
+  auto_start_xapp_monitor: true
+
+lab_ops:
+  # Edit paths for your flexric build tree
+  xapp_kpm_rc_bin: "~/Fall_2024/October_12th/oai/openair2/E2AP/flexric/build/examples/xApp/c/kpm_rc/xapp_kpm_rc"
+  xapp_monitor_cwd: "~/Fall_2024/October_12th/oai/openair2/E2AP/flexric"
+
+plot:
+  rsrp_ylim: [-120.0, -40.0]
+  ris_angle_ylim: [20.0, 60.0]
 
 logging:
   root_dir: "data"

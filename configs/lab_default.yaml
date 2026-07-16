@@ -25,7 +25,7 @@ network:
   xapp_port: 8081
   xapp_monitor_port: 5005
   rsrp_port: 10000
-  ris_host: "192.168.10.123"
+  ris_host: "0.0.0.0"
   ris_port: 9999
   ue_evk_host: "192.168.10.102"
   ue_evk_port: 9999
@@ -46,7 +46,11 @@ devices:
   font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 beams:
-  max_ris_index: 182
+  max_ris_index: 21
+  # Index 0..21 → 20°..60° on RIS angle plot
+  default_ris_index: 1
+  ris_angle_min: 20.0
+  ris_angle_max: 60.0
   beam_interval: 1
   rx_angles: [-27, -21, -15, -9, -3, 0, 3, 9, 15, 21, 27]
   window_len: 5

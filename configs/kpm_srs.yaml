@@ -1,24 +1,23 @@
-# KPM MAC RSRP / SINR — replaces matplotlib mac_rsrp_tcp_plot.py
+# Combined KPM MAC RSRP/SINR + SRS CIR/CFR (Phase 3 Option A)
 #
-# Architecture (important):
-#   xapp_kpm_moni --mac-rsrp-tcp 127.0.0.1:8081   ← TCP *server*
-#   pyoranris (this profile)                     ← TCP *client* + DearPyGui
+# Both xApps can run at once:
+#   xapp_kpm_moni --mac-rsrp-tcp 127.0.0.1:8081
+#   xapp_srs_ind  --srs-cir-tcp  127.0.0.1:8082
+#   pyoranris run -c configs/kpm_srs.yaml
 #
-# Flow:
-#   1) Start RIC + gNB + UE as usual
-#   2) Start KPM xApp (GUI button or):
-#        KPM_REPORT_PERIOD_MS=100 XAPP_DURATION=-1 \
-#          ~/Program_scripts/flexric_scripts/oai-flexric.sh start xapp-kpm
-#   3) pyoranris run -c configs/kpm_mac_rsrp.yaml
-#   4) Click "Plot RSRP" (auto-connects to 127.0.0.1:8081)
+# Single-stream fallbacks remain:
+#   configs/kpm_mac_rsrp.yaml
+#   configs/srs_cir.yaml
 
-profile: kpm_mac_rsrp
+profile: kpm_srs
 
 features:
   xapp_server: false
   xapp_client: false
   mac_rsrp_tcp: true
   auto_connect_mac_rsrp: true
+  srs_cir_tcp: true
+  auto_connect_srs_cir: true
   ris: false
   ris_rest: true
   auto_apply_ris_on_start: true
@@ -36,13 +35,16 @@ features:
 network:
   host: "127.0.0.1"
   xapp_port: 8081
+  srs_port: 8082
   ris_rest_url: "http://localhost:8080/api/beam/apply"
 
 plot:
-  rsrp_ylim: [-90.0, -30.0]
+  rsrp_ylim: [-90.0, 30.0]
   sinr_ylim: [-20.0, 50.0]
-  ris_index_ylim: [0.0, 21.0]
-  ris_angle_ylim: [0.0, 60.0]
+  ris_angle_ylim: [20.0, 60.0]
+  cfr_ylim: [0.0, 0.0]
+  cir_ylim: [0.0, 0.0]
+  srs_ylim_floor: 1.0
   max_points: 600
 
 beams:
@@ -55,6 +57,8 @@ lab_ops:
   flexric_script: "~/Program_scripts/flexric_scripts/oai-flexric.sh"
   kpm_report_period_ms: 100
   xapp_duration: -1
+  srs_max_bins: 1536
+  srs_fft_size: 0
 
 logging:
   root_dir: "data"

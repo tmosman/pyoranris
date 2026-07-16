@@ -1,4 +1,4 @@
-"""CSV-only experiment logging (one file per run under ``data/``)."""
+"""CSV-only experiment logging (one or more files per run under ``data/``)."""
 
 from __future__ import annotations
 
@@ -30,6 +30,21 @@ CSV_HEADER_KPM = [
     "update_latency",
 ]
 
+# SRS CIR/CFR meta (no full IQ dump)
+CSV_HEADER_SRS = [
+    "timestamp",
+    "t_rel_s",
+    "rnti",
+    "ue_id",
+    "sfn",
+    "slot",
+    "peak_bin",
+    "peak_mag",
+    "n_cfr",
+    "RIS_index",
+    "RIS_Angle",
+]
+
 
 def ensure_dirs(paths) -> None:
     for path in paths:
@@ -44,16 +59,26 @@ class ExperimentLogger:
         root_dir: str = "data",
         *,
         schema: str = "demo",
+        name_suffix: str = "",
+        stamp: str | None = None,
     ):
         self.root = Path(root_dir)
         self.schema = schema
-        stamp = datetime.now(timezone.utc).strftime("%a_%b_%d_%H_%M_%S_%f_%Z_%Y")
+        if stamp is None:
+            stamp = datetime.now(timezone.utc).strftime("%a_%b_%d_%H_%M_%S_%f_%Z_%Y")
+        self.stamp = stamp
         ensure_dirs([self.root])
         self.run_dir = self.root
-        self.csv_path = self.root / f"run_{stamp}.csv"
+        suffix = f"_{name_suffix}" if name_suffix else ""
+        self.csv_path = self.root / f"run_{stamp}{suffix}.csv"
         self._fh = open(self.csv_path, "w", newline="", encoding="utf-8")
         self._writer = csv.writer(self._fh)
-        header = CSV_HEADER_KPM if schema == "kpm" else CSV_HEADER
+        if schema == "kpm":
+            header = CSV_HEADER_KPM
+        elif schema == "srs":
+            header = CSV_HEADER_SRS
+        else:
+            header = CSV_HEADER
         self._writer.writerow(header)
         self._fh.flush()
 
@@ -93,6 +118,37 @@ class ExperimentLogger:
                 ris_index,
                 ris_angle,
                 update_latency,
+            ]
+        )
+        self._fh.flush()
+
+    def log_srs_row(
+        self,
+        timestamp,
+        t_rel_s,
+        rnti,
+        ue_id,
+        sfn,
+        slot,
+        peak_bin,
+        peak_mag,
+        n_cfr,
+        ris_index=None,
+        ris_angle=None,
+    ) -> None:
+        self._writer.writerow(
+            [
+                timestamp,
+                t_rel_s,
+                rnti,
+                ue_id,
+                sfn,
+                slot,
+                peak_bin,
+                peak_mag,
+                n_cfr,
+                ris_index,
+                ris_angle,
             ]
         )
         self._fh.flush()

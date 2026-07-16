@@ -29,7 +29,14 @@ How legacy files map into the package.
 4. Mobility + joint BS live in `Controller` (no DearPyGui imports)
 5. GUI only polls `RuntimeSnapshot` and calls controller methods
 
-## Remaining polish (Phase 3+)
+## Phase 3A complete — combined KPM + SRS
+
+- Profile `configs/kpm_srs.yaml` runs both TCP clients (`:8081` + `:8082`)
+- Dual receive threads + dual CSV logs (`*_kpm.csv`, `*_srs.csv`)
+- Combined DearPyGui layout (RSRP/SINR, RIS angle, CFR/CIR)
+- See `docs/KPM_SRS.md`
+
+## Remaining polish (Phase 3B+)
 
 - ZED / YOLO vision path
 - iperf subprocess controls

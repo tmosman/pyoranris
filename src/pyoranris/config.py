@@ -52,6 +52,8 @@ class FeaturesConfig:
     auto_connect_srs_cir: bool = False
     # POST default RIS beam at startup so angle plot tracks from first sample
     auto_apply_ris_on_start: bool = False
+    # Spawn legacy :5005 monitor server (xapp_kpm_rc launcher) when GUI starts
+    auto_start_xapp_monitor: bool = False
 
 
 @dataclass
@@ -74,6 +76,9 @@ class LabOpsConfig:
     xapp_duration: int = -1
     srs_max_bins: int = 1536
     srs_fft_size: int = 0  # 0 = use META n_fft
+    # Legacy indoor mobility — xapp_kpm_rc binary for :5005 monitor server
+    xapp_kpm_rc_bin: str = ""
+    xapp_monitor_cwd: str = ""
 
 
 @dataclass
@@ -111,7 +116,7 @@ class DevicesConfig:
 @dataclass
 class BeamsConfig:
     max_ris_index: int = 182
-    # Applied at startup when auto_apply_ris_on_start is true
+    # GUI spinbox default; also applied at startup (TCP RIS and/or auto_apply_ris_on_start)
     default_ris_index: int = 1
     beam_interval: int = 1
     rx_angles: list[float] = field(

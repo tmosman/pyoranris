@@ -8,12 +8,12 @@ import random
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 
 from pyoranris.algorithms.beam_optimizer import BeamIndexOptimizer, BeamIndexOptimizer2, BeamSearch
-from pyoranris.algorithms.mobility import RSRPMonitor, index_to_angles, ris_index_to_angle
+from pyoranris.algorithms.mobility import RSRPMonitor, ris_index_to_angle
 from pyoranris.config import AppConfig
 from pyoranris.data.experiment_logger import ExperimentLogger
 from pyoranris.devices.marvelmind_device import PositionDevice
@@ -28,6 +28,7 @@ from pyoranris.net.mac_rsrp_client import MacKpiSample, MacRsrpTcpClient
 from pyoranris.net.srs_cir_client import SrsCirTcpClient, SrsFrame
 from pyoranris.net.xapp_server import XAppServer
 from pyoranris.lab.flexric_ops import FlexricKpmLauncher, FlexricSrsLauncher
+from pyoranris.lab.xapp_monitor_ops import XappMonitorLauncher
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ class RuntimeSnapshot:
     monitor_msg: str = ""
     bs_status: str = ""
     xapp_status: str = ""
+    xapp_monitor_status: str = ""
+    srs_status: str = ""
     oai_status: str = ""
     mobility_active: bool = False
     plotting: bool = False
@@ -86,6 +89,7 @@ class Controller:
         self._stop = threading.Event()
         self._plot_stop = threading.Event()
         self._plot_thread: threading.Thread | None = None
+        self._srs_plot_thread: threading.Thread | None = None
         self._sim_thread: threading.Thread | None = None
         self._sweep_lock = threading.Lock()
         self._srs_t0: float | None = None
@@ -101,14 +105,36 @@ class Controller:
         self.monitor = RSRPMonitor(window_len=cfg.beams.window_len)
 
         self.logger: ExperimentLogger | None = None
+        self.srs_logger: ExperimentLogger | None = None
         if cfg.features.record_mobility:
-            schema = "kpm" if cfg.features.mac_rsrp_tcp else "demo"
-            self.logger = ExperimentLogger(
-                root_dir=cfg.logging.root_dir,
-                schema=schema,
-            )
-            self.snapshot.log_path = str(self.logger.csv_path)
-            log.info("Logging to %s", self.logger.csv_path)
+            stamp = datetime.now(timezone.utc).strftime("%a_%b_%d_%H_%M_%S_%f_%Z_%Y")
+            paths: list[str] = []
+            if cfg.features.mac_rsrp_tcp:
+                suffix = "kpm" if cfg.features.srs_cir_tcp else ""
+                self.logger = ExperimentLogger(
+                    root_dir=cfg.logging.root_dir,
+                    schema="kpm",
+                    name_suffix=suffix,
+                    stamp=stamp,
+                )
+                paths.append(str(self.logger.csv_path))
+            if cfg.features.srs_cir_tcp:
+                self.srs_logger = ExperimentLogger(
+                    root_dir=cfg.logging.root_dir,
+                    schema="srs",
+                    name_suffix="srs",
+                    stamp=stamp,
+                )
+                paths.append(str(self.srs_logger.csv_path))
+            if not cfg.features.mac_rsrp_tcp and not cfg.features.srs_cir_tcp:
+                self.logger = ExperimentLogger(
+                    root_dir=cfg.logging.root_dir,
+                    schema="demo",
+                    stamp=stamp,
+                )
+                paths.append(str(self.logger.csv_path))
+            self.snapshot.log_path = " · ".join(paths)
+            log.info("Logging to %s", self.snapshot.log_path)
 
         # Devices / servers (lazy-safe)
         self.xapp: XAppServer | None = None
@@ -117,6 +143,7 @@ class Controller:
         self.flexric: FlexricKpmLauncher | None = None
         self.flexric_srs: FlexricSrsLauncher | None = None
         self.xapp_monitor: LabTCPClient | None = None
+        self.xapp_monitor_launcher: XappMonitorLauncher | None = None
         self.oai_ue: LabTCPClient | None = None
         self.gps: LabTCPClient | None = None
         self.camera: CameraTCPServer | None = None
@@ -139,7 +166,6 @@ class Controller:
                 report_period_ms=cfg.lab_ops.kpm_report_period_ms,
                 duration=cfg.lab_ops.xapp_duration,
             )
-            self._set(xapp_status=f"KPM client → {cfg.network.host}:{cfg.network.xapp_port}")
 
         if cfg.features.srs_cir_tcp:
             fft = int(cfg.lab_ops.srs_fft_size) or None
@@ -155,8 +181,18 @@ class Controller:
                 max_bins=cfg.lab_ops.srs_max_bins,
                 duration=cfg.lab_ops.xapp_duration,
             )
+
+        if cfg.features.mac_rsrp_tcp and cfg.features.srs_cir_tcp:
             self._set(
-                xapp_status=f"SRS CIR client → {cfg.network.host}:{cfg.network.srs_port}"
+                xapp_status=f"KPM → {cfg.network.host}:{cfg.network.xapp_port}",
+                srs_status=f"SRS → {cfg.network.host}:{cfg.network.srs_port}",
+            )
+        elif cfg.features.mac_rsrp_tcp:
+            self._set(xapp_status=f"KPM client → {cfg.network.host}:{cfg.network.xapp_port}")
+        elif cfg.features.srs_cir_tcp:
+            self._set(
+                srs_status=f"SRS CIR client → {cfg.network.host}:{cfg.network.srs_port}",
+                xapp_status=f"SRS CIR client → {cfg.network.host}:{cfg.network.srs_port}",
             )
 
         # Legacy MILCOM binary server (do NOT enable with mac_rsrp_tcp — both want :8081)
@@ -168,6 +204,12 @@ class Controller:
 
         if cfg.features.xapp_client:
             self.xapp_monitor = LabTCPClient(cfg.network.host, cfg.network.xapp_monitor_port)
+            self.xapp_monitor_launcher = XappMonitorLauncher(
+                host=cfg.network.host,
+                port=cfg.network.xapp_monitor_port,
+                xapp_bin=cfg.lab_ops.xapp_kpm_rc_bin,
+                cwd=cfg.lab_ops.xapp_monitor_cwd,
+            )
 
         if not cfg.features.quectel:
             self.oai_ue = LabTCPClient(cfg.network.ue_laptop_host, cfg.network.ue_oai_port)
@@ -209,9 +251,12 @@ class Controller:
             except Exception as exc:
                 log.warning("Marvelmind disabled: %s", exc)
 
-        if cfg.features.ris:
+        if cfg.features.ris and not cfg.features.auto_apply_ris_on_start:
+            # auto_apply_ris_on_start uses _bootstrap_default_ris; otherwise apply once here
             try:
-                self.ris.set_beam(160, cmd="RIS")
+                idx = max(0, min(int(cfg.beams.default_ris_index), int(cfg.beams.max_ris_index)))
+                self.ris.set_beam(idx, cmd="RIS")
+                log.info("Initial RIS beam applied: index=%s", idx)
             except Exception as exc:
                 log.warning("Initial RIS set failed: %s", exc)
 
@@ -231,6 +276,8 @@ class Controller:
                 monitor_msg=s.monitor_msg,
                 bs_status=s.bs_status,
                 xapp_status=s.xapp_status,
+                xapp_monitor_status=s.xapp_monitor_status,
+                srs_status=s.srs_status,
                 oai_status=s.oai_status,
                 mobility_active=s.mobility_active,
                 plotting=s.plotting,
@@ -261,13 +308,18 @@ class Controller:
                 log_path=s.log_path,
             )
 
+    def _angles_for_beams(self, ris_idx: int, rx_idx: int) -> tuple[float, float]:
+        ris_ang = self._ris_angle_for(int(ris_idx))
+        rx_angles = self.constants.rx_angle
+        rx_i = int(rx_idx)
+        if rx_i < 0:
+            rx_i = 0
+        if rx_i >= len(rx_angles):
+            rx_i = len(rx_angles) - 1
+        return ris_ang, float(rx_angles[rx_i])
+
     def _append_series(self, rsrp: float, ris_idx: int, rx_idx: int) -> None:
-        ris_ang, rx_ang = index_to_angles(
-            int(ris_idx),
-            int(rx_idx),
-            max_ris_index=self.constants.max_ris_beam_index,
-            rx_angles=self.constants.rx_angle,
-        )
+        ris_ang, rx_ang = self._angles_for_beams(int(ris_idx), int(rx_idx))
         with self._lock:
             self.snapshot.current_rsrp = float(rsrp)
             self.snapshot.current_ris_beam = int(ris_idx)
@@ -331,8 +383,11 @@ class Controller:
             self.snapshot.srs_peak_mag = float(frame.peak_cfr_mag)
             self.snapshot.srs_frames = int(self.srs_client.frames_received) if self.srs_client else 0
 
-            # Step-hold RIS angle on the same clock as the SRS stream
-            if self.snapshot.current_ris_beam is not None:
+            # Step-hold RIS from SRS only when KPM is not also driving the series
+            if (
+                self.snapshot.current_ris_beam is not None
+                and not self.cfg.features.mac_rsrp_tcp
+            ):
                 if self._srs_t0 is None:
                     self._srs_t0 = time.time()
                 t_rel = time.time() - self._srs_t0
@@ -358,8 +413,13 @@ class Controller:
             log.info("Offline KPI simulator running")
         if self.cfg.features.mac_rsrp_tcp and self.cfg.features.auto_connect_mac_rsrp:
             self.start_plotting()
-        if self.cfg.features.srs_cir_tcp and self.cfg.features.auto_connect_srs_cir:
+        elif self.cfg.features.srs_cir_tcp and self.cfg.features.auto_connect_srs_cir:
             self.start_plotting()
+        # When both auto flags are set, start_plotting starts both streams once
+        if self.cfg.features.auto_start_xapp_monitor and self.xapp_monitor_launcher:
+            msg = self.xapp_monitor_launcher.ensure_running()
+            log.info("xApp monitor: %s", msg)
+            self._set(xapp_monitor_status=msg)
 
     def stop_background_workers(self) -> None:
         self.stop_plotting()
@@ -380,6 +440,10 @@ class Controller:
             self._sim_thread.join(timeout=2)
         if self.logger:
             self.logger.close()
+        if self.srs_logger:
+            self.srs_logger.close()
+        if self.xapp_monitor_launcher:
+            self.xapp_monitor_launcher.stop_server()
 
     def _kpi_queue(self) -> queue.Queue | None:
         if self.mac_client is not None:
@@ -427,27 +491,31 @@ class Controller:
         if not self.flexric_srs:
             return "SRS launcher not configured (enable srs_cir_tcp)"
         msg = self.flexric_srs.start()
-        self._set(xapp_status=msg)
+        self._set(srs_status=msg)
+        if not self.cfg.features.mac_rsrp_tcp:
+            self._set(xapp_status=msg)
         return msg
 
     def stop_srs_xapp(self) -> str:
         if not self.flexric_srs:
             return "SRS launcher not configured (enable srs_cir_tcp)"
         msg = self.flexric_srs.stop()
-        self._set(xapp_status=msg)
+        self._set(srs_status=msg)
         return msg
 
     def status_srs_xapp(self) -> str:
         if not self.flexric_srs:
             return "SRS launcher not configured (enable srs_cir_tcp)"
         msg = self.flexric_srs.status()
-        self._set(xapp_status=msg[:200])
+        self._set(srs_status=msg[:200])
         return msg
 
     def start_xapp_server(self) -> str:
-        if self.cfg.features.srs_cir_tcp:
+        if self.cfg.features.mac_rsrp_tcp and not self.cfg.features.srs_cir_tcp:
+            return self.start_kpm_xapp()
+        if self.cfg.features.srs_cir_tcp and not self.cfg.features.mac_rsrp_tcp:
             return self.start_srs_xapp()
-        if self.cfg.features.mac_rsrp_tcp:
+        if self.cfg.features.mac_rsrp_tcp and self.cfg.features.srs_cir_tcp:
             return self.start_kpm_xapp()
         if not self.xapp:
             return "xApp server not configured"
@@ -456,9 +524,11 @@ class Controller:
         return "xApp Started"
 
     def stop_xapp_server(self) -> str:
-        if self.cfg.features.srs_cir_tcp:
+        if self.cfg.features.mac_rsrp_tcp and not self.cfg.features.srs_cir_tcp:
+            return self.stop_kpm_xapp()
+        if self.cfg.features.srs_cir_tcp and not self.cfg.features.mac_rsrp_tcp:
             return self.stop_srs_xapp()
-        if self.cfg.features.mac_rsrp_tcp:
+        if self.cfg.features.mac_rsrp_tcp and self.cfg.features.srs_cir_tcp:
             return self.stop_kpm_xapp()
         if not self.xapp:
             return "xApp server not configured"
@@ -466,25 +536,43 @@ class Controller:
         self._set(xapp_status="xApp Stopped")
         return "xApp Stopped"
 
+    def _drain_xapp_kpi_queue(self) -> None:
+        if self.xapp is not None:
+            self.xapp.drain_queue()
+
     def start_xapp_monitor(self) -> str:
         if not self.xapp_monitor:
             return "xApp client not configured"
         status = self.xapp_monitor.send_oai_ue_ACK("START", 0)
-        self._set(xapp_status=f"Monitor: {status}")
+        self._drain_xapp_kpi_queue()
+        self._set(xapp_monitor_status=str(status), monitor_msg="waiting for KPIs…")
         return str(status)
 
     def stop_xapp_monitor(self) -> str:
         if not self.xapp_monitor:
             return "xApp client not configured"
         status = self.xapp_monitor.send_oai_ue_ACK("STOP", 0)
-        self._set(xapp_status=f"Monitor: {status}")
+        self._drain_xapp_kpi_queue()
+        self._set(xapp_monitor_status=str(status), monitor_msg="KPI monitoring stopped")
         return str(status)
 
     def exit_xapp_monitor(self) -> str:
         if not self.xapp_monitor:
             return "xApp client not configured"
         status = self.xapp_monitor.send_oai_ue_ACK("EXIT", 0)
-        self._set(xapp_status=f"Monitor: {status}")
+        self._drain_xapp_kpi_queue()
+        self._set(xapp_monitor_status=str(status), monitor_msg="KPI monitoring exited")
+        return str(status)
+
+    def status_xapp_monitor(self) -> str:
+        if self.xapp_monitor_launcher:
+            status = self.xapp_monitor_launcher.query_status()
+            self._set(xapp_monitor_status=str(status))
+            return str(status)
+        if not self.xapp_monitor:
+            return "xApp client not configured"
+        status = self.xapp_monitor.send_oai_ue_ACK("STATUS", 0)
+        self._set(xapp_monitor_status=str(status))
         return str(status)
 
     def start_ue_session(self) -> str:
@@ -632,39 +720,50 @@ class Controller:
         self.constants.counter = -1
 
     def start_plotting(self) -> None:
-        if self._plot_thread and self._plot_thread.is_alive():
-            return
-        if self.cfg.features.srs_cir_tcp:
-            if self.srs_client is None:
-                fft = int(self.cfg.lab_ops.srs_fft_size) or None
-                self.srs_client = SrsCirTcpClient(
-                    self.cfg.network.host,
-                    self.cfg.network.srs_port,
-                    fft_size=fft,
-                )
-            self.srs_client.start()
-            self._plot_stop.clear()
-            self._set(
-                plotting=True,
-                status=f"SRS CIR ← {self.cfg.network.host}:{self.cfg.network.srs_port}",
-            )
-            self._plot_thread = threading.Thread(target=self._srs_receive_loop, daemon=True)
-            self._plot_thread.start()
-            return
+        started = False
+        self._plot_stop.clear()
 
         if self.cfg.features.mac_rsrp_tcp:
-            if self.mac_client is None:
-                self.mac_client = MacRsrpTcpClient(
-                    self.cfg.network.host, self.cfg.network.xapp_port
+            mac_alive = self._plot_thread and self._plot_thread.is_alive()
+            if not mac_alive:
+                if self.mac_client is None:
+                    self.mac_client = MacRsrpTcpClient(
+                        self.cfg.network.host, self.cfg.network.xapp_port
+                    )
+                self.mac_client.start()
+                self._plot_thread = threading.Thread(
+                    target=self._mac_receive_loop, daemon=True, name="mac-kpi"
                 )
-            self.mac_client.start()
-            self._plot_stop.clear()
-            self._set(
-                plotting=True,
-                status=f"MAC RSRP ← {self.cfg.network.host}:{self.cfg.network.xapp_port}",
-            )
-            self._plot_thread = threading.Thread(target=self._mac_receive_loop, daemon=True)
-            self._plot_thread.start()
+                self._plot_thread.start()
+                started = True
+
+        if self.cfg.features.srs_cir_tcp:
+            srs_alive = self._srs_plot_thread and self._srs_plot_thread.is_alive()
+            if not srs_alive:
+                if self.srs_client is None:
+                    fft = int(self.cfg.lab_ops.srs_fft_size) or None
+                    self.srs_client = SrsCirTcpClient(
+                        self.cfg.network.host,
+                        self.cfg.network.srs_port,
+                        fft_size=fft,
+                    )
+                self.srs_client.start()
+                self._srs_plot_thread = threading.Thread(
+                    target=self._srs_receive_loop, daemon=True, name="srs-cir"
+                )
+                self._srs_plot_thread.start()
+                started = True
+
+        if started or (
+            (self._plot_thread and self._plot_thread.is_alive())
+            or (self._srs_plot_thread and self._srs_plot_thread.is_alive())
+        ):
+            parts = []
+            if self.cfg.features.mac_rsrp_tcp:
+                parts.append(f"KPM :{self.cfg.network.xapp_port}")
+            if self.cfg.features.srs_cir_tcp:
+                parts.append(f"SRS :{self.cfg.network.srs_port}")
+            self._set(plotting=True, status=" · ".join(parts) if parts else "Plotting")
             return
 
         if self._kpi_queue() is None and not self.cfg.features.simulate_rsrp:
@@ -672,7 +771,6 @@ class Controller:
                 status="No KPI source (enable xapp_server, mac_rsrp_tcp, srs_cir_tcp, or simulate_rsrp)"
             )
             return
-        self._plot_stop.clear()
         self._set(plotting=True, status="Plotting RSRP")
         self._plot_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self._plot_thread.start()
@@ -687,6 +785,9 @@ class Controller:
         if self._plot_thread:
             self._plot_thread.join(timeout=2)
             self._plot_thread = None
+        if self._srs_plot_thread:
+            self._srs_plot_thread.join(timeout=2)
+            self._srs_plot_thread = None
 
     def _srs_receive_loop(self) -> None:
         assert self.srs_client is not None
@@ -700,13 +801,35 @@ class Controller:
                 continue
             self._apply_srs_frame(frame)
             status = "connected" if self.srs_client.connected else "waiting for xApp…"
-            self._set(
-                monitor_msg=(
-                    f"rnti={frame.rnti} ue={frame.ue_id} "
-                    f"sfn={frame.sfn}.{frame.slot} peak={frame.peak_cfr_bin} [{status}]"
-                ),
-                xapp_status=status,
+            detail = (
+                f"rnti={frame.rnti} ue={frame.ue_id} "
+                f"sfn={frame.sfn}.{frame.slot} peak={frame.peak_cfr_bin} [{status}]"
             )
+            if self.cfg.features.mac_rsrp_tcp:
+                self._set(srs_status=detail)
+            else:
+                self._set(monitor_msg=detail, xapp_status=status, srs_status=status)
+
+            if self.cfg.features.record_mobility and self.srs_logger:
+                with self._lock:
+                    ris_idx = self.snapshot.current_ris_beam
+                    ris_ang = self.snapshot.current_ris_angle
+                    if self._srs_t0 is None:
+                        self._srs_t0 = time.time()
+                    t_rel = time.time() - self._srs_t0
+                self.srs_logger.log_srs_row(
+                    timestamp=datetime.now().timestamp(),
+                    t_rel_s=t_rel,
+                    rnti=frame.rnti,
+                    ue_id=frame.ue_id,
+                    sfn=frame.sfn,
+                    slot=frame.slot,
+                    peak_bin=frame.peak_cfr_bin,
+                    peak_mag=frame.peak_cfr_mag,
+                    n_cfr=len(frame.cfr_mag),
+                    ris_index=ris_idx,
+                    ris_angle=ris_ang if ris_ang == ris_ang else None,
+                )
 
     def _mac_receive_loop(self) -> None:
         assert self.mac_client is not None
@@ -825,12 +948,7 @@ class Controller:
                     self._set(monitor_msg="UE is running", bs_status=" ")
 
                 if self.cfg.features.record_mobility and self.logger:
-                    ris_ang, rx_ang = index_to_angles(
-                        ris_beam,
-                        rx_idx,
-                        max_ris_index=self.constants.max_ris_beam_index,
-                        rx_angles=self.constants.rx_angle,
-                    )
+                    ris_ang, rx_ang = self._angles_for_beams(ris_beam, rx_idx)
                     self.logger.log_row(
                         timestamp=datetime.now().timestamp(),
                         update_latency=self.update_latency,
