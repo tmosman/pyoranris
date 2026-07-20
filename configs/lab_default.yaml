@@ -59,3 +59,10 @@ beams:
 logging:
   root_dir: "data"
   coverage_subdir: "Coverage_Datasets"
+
+# X11 / DearPyGui — new SSH/sudo terminals often lack DISPLAY
+gui:
+  display: ""              # empty = auto (who / :0); or set ":0.0"
+  auto_detect_display: true
+  auto_xhost: true         # xhost +si:localuser:<user> before GUI
+  xhost_user: ""           # optional: "root" when sudo without SUDO_USER

@@ -19,6 +19,14 @@ def run(cfg: AppConfig, *, with_gui: bool = True) -> int:
     ctrl.start_background_workers()
     try:
         if with_gui:
+            from pyoranris.utils.x11_display import ensure_x11_for_gui
+
+            ensure_x11_for_gui(
+                display=cfg.gui.display,
+                auto_detect=cfg.gui.auto_detect_display,
+                auto_xhost=cfg.gui.auto_xhost,
+                xhost_user=cfg.gui.xhost_user,
+            )
             from pyoranris.gui.dpg_gui import DearPyGuiApp
 
             DearPyGuiApp(controller=ctrl).run()

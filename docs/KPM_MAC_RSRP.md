@@ -22,7 +22,7 @@ Sentinel `-1000` = missing (plotted as a gap).
 KPM_REPORT_PERIOD_MS=100 XAPP_DURATION=-1 \
   ~/Program_scripts/flexric_scripts/oai-flexric.sh start xapp-kpm
 
-cd /home/tmosman/Documents/pyoranris
+cd /path/to/pyoranris   # e.g. ~/Documents/GitHub/pyoranris
 source .venv/bin/activate
 pip install -e ".[gui]"
 pyoranris run -c configs/kpm_mac_rsrp.yaml

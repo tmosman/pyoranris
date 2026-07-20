@@ -114,6 +114,16 @@ class DevicesConfig:
 
 
 @dataclass
+class GuiConfig:
+    # Empty display → auto-detect from `who` / :0 before DearPyGui starts
+    display: str = ""
+    auto_detect_display: bool = True
+    # Grant local X access (xhost +si:localuser:<user>); may need a non-sudo desktop terminal once
+    auto_xhost: bool = False
+    xhost_user: str = ""  # default: SUDO_USER, else USER, else root when uid 0
+
+
+@dataclass
 class BeamsConfig:
     max_ris_index: int = 182
     # GUI spinbox default; also applied at startup (TCP RIS and/or auto_apply_ris_on_start)
@@ -145,6 +155,7 @@ class AppConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     plot: PlotConfig = field(default_factory=PlotConfig)
     lab_ops: LabOpsConfig = field(default_factory=LabOpsConfig)
+    gui: GuiConfig = field(default_factory=GuiConfig)
 
 
 def _from_mapping(cls, data: dict[str, Any] | None):
@@ -179,6 +190,7 @@ def _apply_env(cfg: AppConfig) -> AppConfig:
         "PYORANRIS_UE_EVK_HOST": ("network", "ue_evk_host", str),
         "PYORANRIS_DATA_ROOT": ("logging", "root_dir", str),
         "PYORANRIS_MARVELMIND_TTY": ("devices", "marvelmind_tty", str),
+        "PYORANRIS_DISPLAY": ("gui", "display", str),
     }
     for env_key, (section, attr, caster) in mapping.items():
         if env_key in os.environ:
@@ -206,6 +218,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         logging=_from_mapping(LoggingConfig, raw.get("logging")),
         plot=_from_mapping(PlotConfig, raw.get("plot")),
         lab_ops=_from_mapping(LabOpsConfig, raw.get("lab_ops")),
+        gui=_from_mapping(GuiConfig, raw.get("gui")),
     )
     return _apply_env(cfg)
 

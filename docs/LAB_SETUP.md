@@ -3,6 +3,40 @@
 Replace paths below with your machine's OAI / FlexRIC / CN install locations.
 Do **not** commit personal absolute paths into Python code — keep them here or in a private notes file.
 
+## pyoranris GUI (X11)
+
+Fresh SSH or `sudo` shells often lack `DISPLAY`, which breaks DearPyGui/GLFW.
+
+**Option 1 — config** (enabled in `configs/lab_default.yaml`):
+
+```yaml
+gui:
+  display: ""              # auto from `who` / :0, or set ":0.0"
+  auto_detect_display: true
+  auto_xhost: true
+  xhost_user: ""           # use "root" if sudo without SUDO_USER
+```
+
+Then run as usual: `pyoranris run -c configs/indoor_mobility.yaml`
+
+**Option 2 — wrapper script**:
+
+```bash
+chmod +x scripts/run_gui.sh
+./scripts/run_gui.sh -c configs/indoor_mobility.yaml
+```
+
+**Option 3 — manual** (if `xhost` must run from your desktop session):
+
+```bash
+who                    # note display, e.g. :0
+export DISPLAY=:0.0
+xhost +si:localuser:root   # or your login user when not using sudo
+pyoranris run -c configs/indoor_mobility.yaml
+```
+
+Env overrides: `PYORANRIS_DISPLAY`, `PYORANRIS_XHOST_USER`.
+
 ## Core network stack
 
 ### nr-gNB
